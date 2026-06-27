@@ -452,7 +452,7 @@ function App() {
   const getDefaults = () => {
     const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
     const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
-    return Array.from({ length: 7 }, (_, i) => {
+    return Array.from({ length: 14 }, (_, i) => {
       const d = new Date()
       d.setDate(d.getDate() + i)
       return {
@@ -665,9 +665,15 @@ function App() {
                       <div className="booking-header">
                         <div>
                           <div className="booking-service">{b.service?.title}</div>
-                          <span className={`admin-badge ${b.is_confirmed ? 'badge-confirmed' : 'badge-pending'}`}>
-                            {b.is_confirmed ? 'Подтверждено' : 'Ожидает'}
-                          </span>
+                          {b.is_cancelled ? (
+                            <span className="admin-badge" style={{ background: 'rgba(231,76,60,0.15)', color: '#e74c3c' }}>
+                              Отменено
+                            </span>
+                          ) : (
+                            <span className={`admin-badge ${b.is_confirmed ? 'badge-confirmed' : 'badge-pending'}`}>
+                              {b.is_confirmed ? 'Подтверждено' : 'Ожидает'}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="booking-details">
@@ -675,7 +681,7 @@ function App() {
                         {b.master?.name} · {new Date(b.booking_time).toLocaleString('ru-RU')}
                       </div>
                       <div className="booking-actions">
-                        {!b.is_confirmed && (
+                        {!b.is_cancelled && !b.is_confirmed && (
                           <button className="btn btn-sm btn-success" onClick={() => confirmBooking(b.id)}>
                             ✓ Подтвердить
                           </button>
@@ -1031,15 +1037,39 @@ function App() {
                   <div key={b.id} className="booking-card" style={{ cursor: 'default' }}>
                     <div className="booking-header">
                       <div className="booking-service">{b.service?.title}</div>
-                      <span className={`admin-badge ${b.is_confirmed ? 'badge-confirmed' : 'badge-pending'}`}>
-                        {b.is_confirmed ? 'Подтверждено' : 'Ожидает'}
-                      </span>
+                      {b.is_cancelled ? (
+                        <span className="admin-badge" style={{ background: 'rgba(231,76,60,0.15)', color: '#e74c3c' }}>
+                          Отменено
+                        </span>
+                      ) : (
+                        <span className={`admin-badge ${b.is_confirmed ? 'badge-confirmed' : 'badge-pending'}`}>
+                          {b.is_confirmed ? 'Подтверждено' : 'Ожидает'}
+                        </span>
+                      )}
                     </div>
                     <div className="booking-details">
                       <strong>Клиент:</strong> {b.customer_name}{b.customer_tg_username ? ` (@${b.customer_tg_username})` : ''}<br />
                       <strong>Время:</strong> {formatBookingDate(b.booking_time)}<br />
                       <strong>Цена:</strong> {b.service?.price} ₽
                     </div>
+                    {!b.is_cancelled && (
+                      <div className="booking-actions">
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={async () => {
+                            try {
+                              await put(`/bookings/${b.id}/cancel`)
+                              showToast('Запись отменена')
+                              loadMasterBookings(masterViewMaster.id)
+                            } catch (e) {
+                              showToast('Ошибка: ' + e.message)
+                            }
+                          }}
+                        >
+                          ✕ Отменить запись
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
             )}

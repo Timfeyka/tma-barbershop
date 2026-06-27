@@ -100,15 +100,27 @@ def startup():
     # Миграция: notifcation флаги на bookings
     _run_migration(
         db,
-        "ALTER TABLE bookings ADD COLUMN notified_day_before BOOLEAN DEFAULT 0",
+        "ALTER TABLE bookings ADD COLUMN notified_day_before INTEGER DEFAULT 0",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notified_day_before BOOLEAN DEFAULT FALSE",
         "notified_day_before на bookings",
     )
     _run_migration(
         db,
-        "ALTER TABLE bookings ADD COLUMN notified_hour_before BOOLEAN DEFAULT 0",
+        "ALTER TABLE bookings ADD COLUMN notified_hour_before INTEGER DEFAULT 0",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notified_hour_before BOOLEAN DEFAULT FALSE",
         "notified_hour_before на bookings",
+    )
+    _run_migration(
+        db,
+        "ALTER TABLE bookings ADD COLUMN is_cancelled INTEGER DEFAULT 0",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_cancelled BOOLEAN DEFAULT FALSE",
+        "is_cancelled на bookings",
+    )
+    _run_migration(
+        db,
+        "ALTER TABLE master_schedules ADD COLUMN slot_interval_minutes INTEGER DEFAULT 60",
+        "ALTER TABLE master_schedules ADD COLUMN IF NOT EXISTS slot_interval_minutes INTEGER DEFAULT 60",
+        "slot_interval_minutes на master_schedules",
     )
 
     # Миграция: customer_phone nullable

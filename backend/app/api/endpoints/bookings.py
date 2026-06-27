@@ -55,6 +55,7 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
     try:
         start_h, start_m = map(int, schedule.start_time.split(":"))
         end_h, end_m = map(int, schedule.end_time.split(":"))
+        interval = schedule.slot_interval_minutes or 60
     except ValueError:
         raise HTTPException(status_code=500, detail="Ошибка в формате расписания")
 
@@ -63,10 +64,10 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
     minute = start_m
     while hour < end_h or (hour == end_h and minute < end_m):
         all_slots.append(f"{hour:02d}:{minute:02d}")
-        minute += 30
+        minute += interval
         if minute >= 60:
             hour += 1
-            minute = 0
+            minute = minute - 60 if minute >= 60 else 0
 
     # Получаем занятые слоты
     day_start = datetime.combine(target_date, datetime.min.time().replace(hour=start_h, minute=start_m))
@@ -74,6 +75,7 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
 
     booked = db.query(models.Booking).filter(
         models.Booking.master_id == master_id,
+        models.Booking.is_cancelled == False,
         models.Booking.booking_time >= day_start,
         models.Booking.booking_time < day_end,
     ).all()
@@ -179,6 +181,37 @@ def delete_booking(booking_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 
+@router.put("/{booking_id}/cancel")
+def cancel_booking(booking_id: int, db: Session = Depends(get_db)):
+    """Мастер отменяет запись (помечаем как отменённую, не удаляем)"""
+    booking = db.query(models.Booking).options(
+        joinedload(models.Booking.master),
+        joinedload(models.Booking.service),
+    ).filter(models.Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    if booking.is_cancelled:
+        raise HTTPException(status_code=400, detail="Запись уже отменена")
+
+    booking.is_cancelled = True
+    db.commit()
+
+    # Уведомляем клиента об отмене
+    if booking.customer_tg_id and booking.customer_tg_id > 0:
+        from app.services.telegram import _send_telegram_message
+        time_str = booking.booking_time.strftime("%d.%m.%Y в %H:%M")
+        text = (
+            f"❌ <b>Запись отменена</b>\n\n"
+            f"💇 <b>Мастер:</b> {booking.master.name}\n"
+            f"📋 <b>Услуга:</b> {booking.service.title}\n"
+            f"📅 <b>Время:</b> {time_str}\n\n"
+            f"Извините за неудобства. Вы можете записаться снова в приложении."
+        )
+        _send_telegram_message(booking.customer_tg_id, text)
+
+    return {"status": "cancelled"}
+
+
 @router.post("/check-reminders")
 def check_reminders(db: Session = Depends(get_db)):
     """Проверить и отправить напоминания о записях.
@@ -196,6 +229,7 @@ def check_reminders(db: Session = Depends(get_db)):
         joinedload(models.Booking.master),
         joinedload(models.Booking.service),
     ).filter(
+        models.Booking.is_cancelled == False,
         models.Booking.customer_tg_id.isnot(None),
         models.Booking.customer_tg_id > 0,
         models.Booking.notified_day_before == False,
@@ -224,6 +258,7 @@ def check_reminders(db: Session = Depends(get_db)):
         joinedload(models.Booking.master),
         joinedload(models.Booking.service),
     ).filter(
+        models.Booking.is_cancelled == False,
         models.Booking.customer_tg_id.isnot(None),
         models.Booking.customer_tg_id > 0,
         models.Booking.notified_hour_before == False,

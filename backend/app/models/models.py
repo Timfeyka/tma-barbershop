@@ -43,7 +43,8 @@ class Booking(Base):
     customer_tg_username = Column(String, nullable=True)
     customer_tg_id = Column(Integer, nullable=True)
     booking_time = Column(DateTime, nullable=False)
-    is_confirmed = Column(Boolean, default=False)
+    is_confirmed = Column(Boolean, default=True)
+    is_cancelled = Column(Boolean, default=False)
     notified_day_before = Column(Boolean, default=False)
     notified_hour_before = Column(Boolean, default=False)
 
@@ -75,6 +76,7 @@ class MasterSchedule(Base):
     is_working = Column(Boolean, default=True)
     start_time = Column(String, default="10:00")
     end_time = Column(String, default="20:00")
+    slot_interval_minutes = Column(Integer, default=60)
 
     master = relationship("Master", back_populates="schedule")
 

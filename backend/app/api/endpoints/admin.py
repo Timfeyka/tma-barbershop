@@ -20,10 +20,13 @@ def admin_login(payload: schemas.AdminLogin):
 
 @router.get("/stats", response_model=schemas.AdminStats)
 def get_stats(db: Session = Depends(get_db)):
+    total = db.query(models.Booking).filter(models.Booking.is_cancelled == False).count()
+    confirmed = db.query(models.Booking).filter(models.Booking.is_cancelled == False, models.Booking.is_confirmed == True).count()
+    pending = db.query(models.Booking).filter(models.Booking.is_cancelled == False, models.Booking.is_confirmed == False).count()
     return schemas.AdminStats(
-        total_bookings=db.query(models.Booking).count(),
-        confirmed_bookings=db.query(models.Booking).filter(models.Booking.is_confirmed == True).count(),
-        pending_bookings=db.query(models.Booking).filter(models.Booking.is_confirmed == False).count(),
+        total_bookings=total,
+        confirmed_bookings=confirmed,
+        pending_bookings=pending,
         total_masters=db.query(models.Master).count(),
         total_services=db.query(models.Service).count(),
     )

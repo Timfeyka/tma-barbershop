@@ -76,7 +76,8 @@ class BookingCreate(BookingBase):
 
 class BookingResponse(BookingBase):
     id: int
-    is_confirmed: bool
+    is_confirmed: bool = True
+    is_cancelled: bool = False
     notified_day_before: bool = False
     notified_hour_before: bool = False
     master: Optional[MasterResponse] = None
@@ -130,6 +131,7 @@ class MasterScheduleItem(BaseModel):
     is_working: bool = True
     start_time: str = "10:00"
     end_time: str = "20:00"
+    slot_interval_minutes: int = 60
 
 
 class MasterScheduleUpdate(BaseModel):
