@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { get, post, put, del } from './api'
 import './App.css'
 
-const DAYS_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+const WEEKDAYS_SHORT = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
 const DAYS_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
 
 function App() {
@@ -31,6 +31,8 @@ function App() {
   const [masterTab, setMasterTab] = useState('bookings')
   const [masterServicesList, setMasterServicesList] = useState([])
   const [masterSchedule, setMasterSchedule] = useState([])
+  const [masterDateOverrides, setMasterDateOverrides] = useState([])
+  const [dateOverrideForm, setDateOverrideForm] = useState({ date: '', is_working: true, max_bookings: 999, note: '' })
 
   // Админка
   const [isAdmin, setIsAdmin] = useState(window.location.hash === '#admin')
@@ -218,7 +220,8 @@ function App() {
   const handleSubmitBooking = async () => {
     if (!selectedSlot) return
     const [h, m] = selectedSlot.split(':')
-    const dt = new Date(selectedDate + 'T' + h + ':' + m + ':00')
+    // Отправляем локальное время как есть (сервер сравнивает naive datetime)
+    const bookingTime = `${selectedDate}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`
 
     const firstName = tgUser?.first_name || tgUser?.username || 'Клиент'
     const username = tgUser?.username || null
@@ -232,7 +235,7 @@ function App() {
         customer_phone: null,
         customer_tg_username: username,
         customer_tg_id: tgId,
-        booking_time: dt.toISOString(),
+        booking_time: bookingTime,
       })
       setStep('confirmation')
     } catch (e) {
@@ -314,6 +317,52 @@ function App() {
     try {
       await put(`/masters/${masterViewMaster.id}/schedule`, { schedule: masterSchedule })
       showToast('Расписание сохранено!')
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    }
+  }
+
+  // ===== ДАШБОРД МАСТЕРА: ОСОБЫЕ ДАТЫ =====
+
+  const loadMasterDateOverrides = async () => {
+    if (!masterViewMaster) return
+    const now = new Date()
+    const data = await get(`/masters/${masterViewMaster.id}/date-overrides?year=${now.getFullYear()}&month=${now.getMonth() + 1}`).catch(() => [])
+    setMasterDateOverrides(data)
+  }
+
+  const handleMasterSaveDateOverride = async () => {
+    if (!masterViewMaster || !dateOverrideForm.date) return
+    try {
+      await put(`/masters/${masterViewMaster.id}/date-overrides`, {
+        date: dateOverrideForm.date,
+        is_working: dateOverrideForm.is_working,
+        max_bookings: dateOverrideForm.is_working ? dateOverrideForm.max_bookings : 999,
+        note: dateOverrideForm.note || null,
+      })
+      showToast('Дата сохранена!')
+      setDateOverrideForm({ date: '', is_working: true, max_bookings: 999, note: '' })
+      loadMasterDateOverrides()
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    }
+  }
+
+  const handleMasterDeleteDateOverride = async (overrideId) => {
+    if (!masterViewMaster) return
+    await del(`/masters/${masterViewMaster.id}/date-overrides/${overrideId}`)
+    showToast('Особая дата удалена')
+    loadMasterDateOverrides()
+  }
+
+  const handleLinkTelegram = async () => {
+    if (!masterViewMaster || !tgUser?.id) return
+    try {
+      await put(`/masters/${masterViewMaster.id}/link-telegram`, {
+        telegram_id: tgUser.id,
+        tg_username: tgUser.username || null,
+      })
+      showToast('Telegram привязан! Теперь вы будете получать уведомления.')
     } catch (e) {
       showToast('Ошибка: ' + e.message)
     }
@@ -449,20 +498,54 @@ function App() {
 
   // ===== УТИЛИТЫ =====
 
-  const getDefaults = () => {
-    const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
-    const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
-    return Array.from({ length: 14 }, (_, i) => {
-      const d = new Date()
-      d.setDate(d.getDate() + i)
-      return {
-        dateStr: d.toISOString().slice(0, 10),
-        dayName: days[d.getDay()],
-        dayNum: d.getDate(),
-        month: months[d.getMonth()],
-      }
-    })
+  // Преобразует Date в YYYY-MM-DD в локальном часовом поясе
+  const toLocalDateStr = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
+
+  // Состояние календаря
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth())
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear())
+
+  // Генерирует дни для отображения месяца
+  const getMonthDays = (month, year) => {
+    const firstDay = new Date(year, month, 1)
+    const lastDay = new Date(year, month + 1, 0)
+    const daysInMonth = lastDay.getDate()
+    const startWeekday = firstDay.getDay() // 0=вс, 1=пн...
+
+    // Заполняем массив с воскресенья как 0, преобразуем в пн=0
+    const startOffset = startWeekday === 0 ? 6 : startWeekday - 1
+
+    const today = new Date()
+    const todayStr = toLocalDateStr(today)
+
+    const days = []
+    // Пустые ячейки перед первым днём
+    for (let i = 0; i < startOffset; i++) {
+      days.push({ day: null, dateStr: null, isOther: true })
+    }
+    // Дни месяца
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(year, month, d)
+      const dateStr = toLocalDateStr(date)
+      days.push({
+        day: d,
+        dateStr,
+        isToday: dateStr === todayStr,
+        isPast: dateStr < todayStr,
+        isOther: false,
+        dayOfWeek: date.getDay(),
+      })
+    }
+    return days
+  }
+
+  const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
+  const MONTHS_RU_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
 
   const getDefaultSchedule = () => {
     return [
@@ -477,10 +560,8 @@ function App() {
   }
 
   const formatBookingDate = (iso) => {
-    return new Date(iso).toLocaleString('ru-RU', {
-      day: 'numeric', month: 'long', weekday: 'short',
-      hour: '2-digit', minute: '2-digit',
-    })
+    const d = new Date(iso)
+    return `${d.getDate()} ${MONTHS_RU_GEN[d.getMonth()]}, ${d.getFullYear()} в ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }
 
   const getMasterLink = (masterId) => {
@@ -532,43 +613,20 @@ function App() {
             </button>
           </div>
         ) : (
-          <div style={{ padding: 24 }}>
-            <p style={{ color: 'var(--text-dim)', marginBottom: 16, textAlign: 'center' }}>
-              Вы получили приглашение стать мастером в барбершопе.<br />
-              Заполните данные ниже.
+          <div style={{ padding: 24, textAlign: 'center' }}>
+            <span style={{ fontSize: 48, display: 'block', marginBottom: 16 }}>📱</span>
+            <p style={{ color: 'var(--text-dim)', marginBottom: 16 }}>
+              Для регистрации мастера откройте эту ссылку через Telegram.<br />
+              Данные (имя, фото) подтянутся автоматически.
             </p>
-            <div className="form-group">
-              <label>Имя (будет отображаться клиентам)</label>
-              <input
-                className="form-input"
-                placeholder="Иван"
-                value={manualName}
-                onChange={e => setManualName(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label>Telegram @username</label>
-              <input
-                className="form-input"
-                placeholder="@username"
-                value={manualTgUsername}
-                onChange={e => setManualTgUsername(e.target.value.replace('@', ''))}
-              />
-              <small style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 4, display: 'block' }}>
-                Будет отображаться в админке. Если не укажете — не сможете получать уведомления в Telegram.
-              </small>
-            </div>
             <button
               className="btn btn-primary"
-              onClick={() => handleRegisterByInvite({
-                name: manualName,
-                username: manualTgUsername || null,
-                telegram_id: 0,
-              })}
-              disabled={registering || !manualName.trim()}
-              style={{ marginTop: 8 }}
+              onClick={() => {
+                navigator.clipboard?.writeText(window.location.href)
+                showToast('Ссылка скопирована, отправьте её в Telegram')
+              }}
             >
-              {registering ? 'Регистрация...' : '✅ Зарегистрироваться'}
+              Копировать ссылку
             </button>
           </div>
         )}
@@ -992,12 +1050,26 @@ function App() {
           ← Выйти
         </button>
 
+        {/* Кнопка "Привязать Telegram" */}
+        {!masterViewMaster.telegram_id && tgUser?.id && (
+          <div style={{ textAlign: 'center', marginBottom: 8 }}>
+            <button
+              className="btn btn-success btn-sm"
+              style={{ display: 'inline-block', width: 'auto', padding: '6px 14px', fontSize: 13 }}
+              onClick={handleLinkTelegram}
+            >
+              🔗 Привязать Telegram (для уведомлений)
+            </button>
+          </div>
+        )}
+
         {/* Табы мастера */}
         <nav className="nav-tabs" style={{ marginTop: 4 }}>
           {[
             { key: 'bookings', label: '📅 Записи' },
             { key: 'services', label: '✂️ Услуги' },
             { key: 'schedule', label: '📅 График' },
+            { key: 'dates', label: '📌 Даты' },
           ].map(t => (
             <button
               key={t.key}
@@ -1006,6 +1078,7 @@ function App() {
                 setMasterTab(t.key)
                 if (t.key === 'services') loadMasterOwnServices()
                 if (t.key === 'schedule') loadMasterOwnSchedule()
+                if (t.key === 'dates') loadMasterDateOverrides()
               }}
             >
               {t.label}
@@ -1184,6 +1257,90 @@ function App() {
           </div>
         )}
 
+        {/* Особые даты мастера */}
+        {masterTab === 'dates' && (
+          <div style={{ marginTop: 8 }}>
+            <h3 style={{ marginBottom: 8 }}>Особые даты</h3>
+            <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 16 }}>
+              Можно указать, что в определённый день вы не работаете или принимаете ограниченное число клиентов.
+            </p>
+
+            {/* Форма добавления */}
+            <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label>Дата</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={dateOverrideForm.date}
+                  onChange={e => setDateOverrideForm({ ...dateOverrideForm, date: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={dateOverrideForm.is_working}
+                    onChange={e => setDateOverrideForm({ ...dateOverrideForm, is_working: e.target.checked })}
+                  />
+                  Рабочий день
+                </label>
+              </div>
+              {dateOverrideForm.is_working && (
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label>Макс. записей (оставьте 999 для безлимита)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="1"
+                    max="999"
+                    value={dateOverrideForm.max_bookings}
+                    onChange={e => setDateOverrideForm({ ...dateOverrideForm, max_bookings: parseInt(e.target.value) || 999 })}
+                  />
+                </div>
+              )}
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label>Примечание (необязательно)</label>
+                <input
+                  className="form-input"
+                  placeholder="Например: только 1 запись"
+                  value={dateOverrideForm.note}
+                  onChange={e => setDateOverrideForm({ ...dateOverrideForm, note: e.target.value })}
+                />
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handleMasterSaveDateOverride}
+                disabled={!dateOverrideForm.date}
+              >
+                💾 Сохранить
+              </button>
+            </div>
+
+            {/* Список особых дат */}
+            {masterDateOverrides.length === 0 ? (
+              <p style={{ color: 'var(--text-dim)', fontSize: 13, textAlign: 'center' }}>Особых дат пока нет</p>
+            ) : (
+              masterDateOverrides.map(o => (
+                <div key={o.id} className="admin-item">
+                  <div className="admin-item-info">
+                    <h4>{o.date}</h4>
+                    <span>
+                      {o.is_working ? `✅ Рабочий день · макс ${o.max_bookings} записей` : '❌ Выходной'}
+                      {o.note ? ` · ${o.note}` : ''}
+                    </span>
+                  </div>
+                  <div className="admin-actions">
+                    <button className="btn btn-sm btn-danger" onClick={() => handleMasterDeleteDateOverride(o.id)}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
         {toast && <div className="toast">{toast}</div>}
       </div>
     )
@@ -1280,32 +1437,43 @@ function App() {
             </div>
           )}
 
-          {!getAutoMaster() && (
+          {!getAutoMaster() && tgUser && (
             <>
-              <p style={{ color: 'var(--text-dim)', fontSize: 14, marginBottom: 16 }}>
-                Введите свой ID, чтобы посмотреть записи
-              </p>
-              <div className="form-group">
-                <label>ID мастера</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  placeholder="Например: 1"
-                  value={masterLoginId}
-                  onChange={e => { setMasterLoginId(e.target.value); setMasterLoginError('') }}
-                  onKeyDown={e => e.key === 'Enter' && handleMasterLogin()}
-                />
+              <div className="summary" style={{ textAlign: 'center', marginBottom: 16 }}>
+                <p style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 32 }}>🔗</span>
+                </p>
+                <p style={{ color: 'var(--text-dim)', fontSize: 14, marginBottom: 12 }}>
+                  {tgUser.first_name}, ваш Telegram не привязан к мастеру.<br />
+                  Попросите у администратора инвайт-ссылку.
+                </p>
               </div>
-              {masterLoginError && (
-                <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 12 }}>{masterLoginError}</p>
+
+              {inviteToken && (
+                <div className="summary" style={{ marginBottom: 16 }}>
+                  <p style={{ color: 'var(--text)', fontSize: 14, marginBottom: 12 }}>
+                    Обнаружена инвайт-ссылка. Зарегистрироваться как мастер?
+                  </p>
+                  <button className="btn btn-primary" onClick={() => handleRegisterByInvite()}>
+                    Зарегистрироваться
+                  </button>
+                </div>
               )}
-              <button className="btn btn-primary" onClick={handleMasterLogin}>
-                Войти
-              </button>
-              <p style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 12, textAlign: 'center' }}>
-                ID можно узнать у администратора
-              </p>
             </>
+          )}
+
+          {!getAutoMaster() && !tgUser && (
+            <div className="summary" style={{ textAlign: 'center', marginBottom: 16 }}>
+              <p style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 32 }}>📱</span>
+              </p>
+              <p style={{ color: 'var(--text-dim)', fontSize: 14, marginBottom: 12 }}>
+                Для входа как мастер откройте это приложение через Telegram.
+              </p>
+              <p style={{ color: 'var(--text-dim)', fontSize: 12 }}>
+                Используйте поиск в Telegram → найдите бота → запустите Mini App.
+              </p>
+            </div>
           )}
         </>
       )}
@@ -1352,37 +1520,61 @@ function App() {
 
       {step === 'datetime' && (
         <>
-          <h2 className="section-title">Выберите дату и время</h2>
-          <div className="date-picker">
-            {getDefaults().map(d => (
+          <h2 className="section-title">Выберите дату</h2>
+
+          {/* Навигация по месяцам */}
+          <div className="calendar-nav">
+            <button className="nav-arrow" onClick={() => {
+              if (calendarMonth === 0) { setCalendarMonth(11); setCalendarYear(calendarYear - 1) }
+              else { setCalendarMonth(calendarMonth - 1) }
+              setSelectedDate(null); setSelectedSlot(null); setSlots([])
+            }}>‹</button>
+            <h3>{MONTHS_RU[calendarMonth]} {calendarYear}</h3>
+            <button className="nav-arrow" onClick={() => {
+              if (calendarMonth === 11) { setCalendarMonth(0); setCalendarYear(calendarYear + 1) }
+              else { setCalendarMonth(calendarMonth + 1) }
+              setSelectedDate(null); setSelectedSlot(null); setSlots([])
+            }}>›</button>
+          </div>
+
+          {/* Сетка календаря */}
+          <div className="calendar-grid">
+            {WEEKDAYS_SHORT.map(wd => (
+              <div key={wd} className="calendar-weekday">{wd}</div>
+            ))}
+            {getMonthDays(calendarMonth, calendarYear).map((d, i) => (
               <button
-                key={d.dateStr}
-                className={`date-btn ${selectedDate === d.dateStr ? 'active' : ''}`}
-                onClick={() => handleSelectDate(d.dateStr)}
+                key={i}
+                className={`calendar-day${d.isToday ? ' today' : ''}${d.isPast ? ' past' : ''}${d.isOther ? ' other-month' : ''}${selectedDate === d.dateStr ? ' selected' : ''}`}
+                disabled={!d.dateStr || d.isPast || d.isOther}
+                onClick={() => d.dateStr && !d.isPast && handleSelectDate(d.dateStr)}
               >
-                <span className="day-name">{d.dayName}</span>
-                <span className="day-num">{d.dayNum}</span>
-                <span className="month">{d.month}</span>
+                {d.day}
               </button>
             ))}
           </div>
-          {slots.length > 0 && (
-            <div className="slots-grid">
-              {slots.map(s => (
-                <button
-                  key={s.time}
-                  className={`slot-btn ${!s.available ? 'disabled' : ''} ${selectedSlot === s.time ? 'active' : ''}`}
-                  disabled={!s.available}
-                  onClick={() => s.available && setSelectedSlot(s.time)}
-                >
-                  {s.time}
-                </button>
-              ))}
-            </div>
+
+          {/* Слоты для выбранной даты */}
+          {selectedDate && slots.length > 0 && (
+            <>
+              <h2 className="section-title">Выберите время</h2>
+              <div className="slots-grid">
+                {slots.map(s => (
+                  <button
+                    key={s.time}
+                    className={`slot-btn ${!s.available ? 'disabled' : ''} ${selectedSlot === s.time ? 'active' : ''}`}
+                    disabled={!s.available}
+                    onClick={() => s.available && setSelectedSlot(s.time)}
+                  >
+                    {s.time}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           {selectedDate && slots.length === 0 && (
-            <p style={{ textAlign: 'center', color: 'var(--text-dim)', marginTop: 24 }}>
-              Свободных слотов нет
+            <p style={{ textAlign: 'center', color: 'var(--text-dim)', marginTop: 16 }}>
+              Свободных слотов нет на этот день
             </p>
           )}
           {selectedSlot && (

@@ -660,6 +660,109 @@ code {
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
+/* ===== MONTH CALENDAR ===== */
+.calendar-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.calendar-nav h3 {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  padding: 6px 0;
+  font-weight: 600;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 2px;
+  position: relative;
+}
+
+.calendar-day:active {
+  transform: scale(0.95);
+}
+
+.calendar-day.today {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.calendar-day.selected {
+  background: var(--accent);
+  color: #0d0d0d;
+  font-weight: 700;
+}
+
+.calendar-day.other-month {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.calendar-day.has-bookings::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.calendar-day.past {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.calendar-day .date-override-badge {
+  font-size: 8px;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.nav-arrow {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.nav-arrow:active {
+  transform: scale(0.95);
+}
+
 /* ===== EMPTY STATE ===== */
 .empty-state {
   text-align: center;

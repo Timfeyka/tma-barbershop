@@ -40,6 +40,17 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
     if not master:
         raise HTTPException(status_code=404, detail="Мастер не найден")
 
+    # Проверяем особые даты (date override)
+    override = db.query(models.MasterDateOverride).filter(
+        models.MasterDateOverride.master_id == master_id,
+        models.MasterDateOverride.date == date,
+    ).first()
+
+    if override and not override.is_working:
+        return {"date": date, "slots": [], "note": "Мастер не работает в этот день"}
+
+    max_bookings = override.max_bookings if override else 999
+
     # Получаем расписание мастера на этот день недели (0=пн ... 6=вс)
     day_of_week = target_date.weekday()
 
@@ -85,11 +96,15 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
         booked_times.add(b.booking_time.strftime("%H:%M"))
 
     available = []
+    available_count = 0
     for slot in all_slots:
-        available.append({
-            "time": slot,
-            "available": slot not in booked_times
-        })
+        is_available = slot not in booked_times
+        if is_available and available_count >= max_bookings:
+            available.append({"time": slot, "available": False, "note": "Лимит записей на этот день"})
+        else:
+            available.append({"time": slot, "available": is_available})
+            if is_available:
+                available_count += 1
 
     return {"date": date, "slots": available}
 

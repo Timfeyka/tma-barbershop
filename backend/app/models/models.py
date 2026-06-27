@@ -81,6 +81,20 @@ class MasterSchedule(Base):
     master = relationship("Master", back_populates="schedule")
 
 
+# Особые даты мастера (переопределение расписания)
+class MasterDateOverride(Base):
+    __tablename__ = "master_date_overrides"
+
+    id = Column(Integer, primary_key=True, index=True)
+    master_id = Column(Integer, ForeignKey("masters.id", ondelete="CASCADE"), nullable=False)
+    date = Column(String, nullable=False, index=True)  # YYYY-MM-DD
+    is_working = Column(Boolean, default=True)
+    max_bookings = Column(Integer, default=999)  # макс записей в этот день
+    note = Column(String, nullable=True)
+
+    master = relationship("Master", backref="date_overrides")
+
+
 # Инвайт-токен для регистрации мастера через Telegram
 class MasterInvite(Base):
     __tablename__ = "master_invites"

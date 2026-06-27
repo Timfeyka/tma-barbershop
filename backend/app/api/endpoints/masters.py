@@ -162,3 +162,86 @@ def update_master_schedule(master_id: int, payload: schemas.MasterScheduleUpdate
 
     # Возвращаем новое расписание
     return get_master_schedule(master_id, db)
+
+
+# --- Особые даты мастера ---
+
+@router.get("/{master_id}/date-overrides", response_model=List[schemas.DateOverrideResponse])
+def get_date_overrides(master_id: int, year: int = None, month: int = None, db: Session = Depends(get_db)):
+    """Получить особые даты мастера. Можно отфильтровать по году/месяцу."""
+    query = db.query(models.MasterDateOverride).filter(
+        models.MasterDateOverride.master_id == master_id
+    )
+    if year and month:
+        prefix = f"{year:04d}-{month:02d}"
+        query = query.filter(models.MasterDateOverride.date.like(f"{prefix}%"))
+    return query.order_by(models.MasterDateOverride.date).all()
+
+
+@router.put("/{master_id}/date-overrides", response_model=schemas.DateOverrideResponse)
+def upsert_date_override(master_id: int, payload: schemas.DateOverrideCreate, db: Session = Depends(get_db)):
+    """Создать или обновить особую дату мастера."""
+    master = db.query(models.Master).filter(models.Master.id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=404, detail="Мастер не найден")
+
+    existing = db.query(models.MasterDateOverride).filter(
+        models.MasterDateOverride.master_id == master_id,
+        models.MasterDateOverride.date == payload.date,
+    ).first()
+
+    if existing:
+        existing.is_working = payload.is_working
+        existing.max_bookings = payload.max_bookings
+        existing.note = payload.note
+    else:
+        existing = models.MasterDateOverride(
+            master_id=master_id,
+            date=payload.date,
+            is_working=payload.is_working,
+            max_bookings=payload.max_bookings,
+            note=payload.note,
+        )
+        db.add(existing)
+
+    db.commit()
+    db.refresh(existing)
+    return existing
+
+
+@router.delete("/{master_id}/date-overrides/{override_id}")
+def delete_date_override(master_id: int, override_id: int, db: Session = Depends(get_db)):
+    """Удалить особую дату."""
+    override = db.query(models.MasterDateOverride).filter(
+        models.MasterDateOverride.id == override_id,
+        models.MasterDateOverride.master_id == master_id,
+    ).first()
+    if not override:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    db.delete(override)
+    db.commit()
+    return {"status": "deleted"}
+
+
+# --- Привязка Telegram к мастеру ---
+
+@router.put("/{master_id}/link-telegram", response_model=schemas.MasterResponse)
+def link_telegram(master_id: int, payload: schemas.LinkTelegramRequest, db: Session = Depends(get_db)):
+    """Привязать Telegram ID к мастеру (из Mini App)."""
+    master = db.query(models.Master).filter(models.Master.id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=404, detail="Мастер не найден")
+
+    # Проверяем, не привязан ли этот TG ID к другому мастеру
+    existing = db.query(models.Master).filter(
+        models.Master.telegram_id == payload.telegram_id,
+        models.Master.id != master_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Этот Telegram уже привязан к другому мастеру")
+
+    master.telegram_id = payload.telegram_id
+    master.tg_username = payload.tg_username or master.tg_username
+    db.commit()
+    db.refresh(master)
+    return master

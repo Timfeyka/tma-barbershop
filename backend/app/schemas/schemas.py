@@ -138,6 +138,32 @@ class MasterScheduleUpdate(BaseModel):
     schedule: List[MasterScheduleItem]
 
 
+# --- Схемы для особых дат мастера ---
+class DateOverrideCreate(BaseModel):
+    date: str  # YYYY-MM-DD
+    is_working: bool = True
+    max_bookings: int = 999
+    note: Optional[str] = None
+
+
+class DateOverrideResponse(BaseModel):
+    id: int
+    master_id: int
+    date: str
+    is_working: bool
+    max_bookings: int
+    note: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --- Схемы для регистрации мастера ---
+class LinkTelegramRequest(BaseModel):
+    telegram_id: int
+    tg_username: Optional[str] = None
+
+
 # --- Схемы для инвайт-регистрации ---
 class InviteLinkResponse(BaseModel):
     telegram_url: str | None = None
