@@ -133,7 +133,8 @@ class MasterScheduleUpdate(BaseModel):
 
 # --- Схемы для инвайт-регистрации ---
 class InviteLinkResponse(BaseModel):
-    url: str
+    telegram_url: str | None = None
+    direct_url: str
     token: str
 
 

@@ -64,19 +64,19 @@ def register_by_invite(payload: schemas.RegisterByInvite, db: Session = Depends(
     if not invite:
         raise HTTPException(status_code=400, detail="Недействительная или уже использованная ссылка")
 
-    # Проверяем, не зарегистрирован ли уже этот Telegram ID
-    existing = db.query(models.Master).filter(
-        models.Master.telegram_id == payload.telegram_id
-    ).first()
-    if existing:
-        # Если мастер уже существует с таким telegram_id — просто помечаем и возвращаем его
-        invite.is_used = True
-        invite.used_by_telegram_id = payload.telegram_id
-        db.commit()
-        return schemas.MasterRegisterResponse(
-            master=schemas.MasterResponse.model_validate(existing),
-            message="Вы уже зарегистрированы как мастер. Добро пожаловать!",
-        )
+    # Проверяем, не зарегистрирован ли уже этот Telegram ID (только если > 0)
+    if payload.telegram_id and payload.telegram_id > 0:
+        existing = db.query(models.Master).filter(
+            models.Master.telegram_id == payload.telegram_id
+        ).first()
+        if existing:
+            invite.is_used = True
+            invite.used_by_telegram_id = payload.telegram_id
+            db.commit()
+            return schemas.MasterRegisterResponse(
+                master=schemas.MasterResponse.model_validate(existing),
+                message="Вы уже зарегистрированы как мастер. Добро пожаловать!",
+            )
 
     # Создаём мастера
     bot_username = payload.username or ""
@@ -85,7 +85,7 @@ def register_by_invite(payload: schemas.RegisterByInvite, db: Session = Depends(
         name=payload.name,
         role="Барбер",
         photo_url=photo_url,
-        telegram_id=payload.telegram_id,
+        telegram_id=payload.telegram_id if payload.telegram_id and payload.telegram_id > 0 else None,
         bio=f"Telegram: @{bot_username}" if bot_username else None,
     )
     db.add(db_master)

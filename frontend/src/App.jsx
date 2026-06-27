@@ -46,6 +46,8 @@ function App() {
 
   // Инвайт-ссылка (админка)
   const [inviteLink, setInviteLink] = useState('')
+  const [inviteLinkDirect, setInviteLinkDirect] = useState('')
+  const [inviteLinkTg, setInviteLinkTg] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
   const [botInfo, setBotInfo] = useState(null)
 
@@ -60,6 +62,8 @@ function App() {
   // Регистрация по инвайту
   const [inviteToken, setInviteToken] = useState(null)
   const [registering, setRegistering] = useState(false)
+  const [manualName, setManualName] = useState('')
+  const [manualTgUsername, setManualTgUsername] = useState('')
 
   // Секретный вход в админку
   const [tapCount, setTapCount] = useState(0)
@@ -162,16 +166,19 @@ function App() {
 
   // ===== РЕГИСТРАЦИЯ ПО ИНВАЙТУ =====
 
-  const handleRegisterByInvite = async () => {
-    if (!tgUser || !inviteToken) return
+  const handleRegisterByInvite = async (manualData) => {
+    const payload = manualData || {}
+    if (!payload.name && !tgUser) return
+    if (!inviteToken) return
+
     setRegistering(true)
     try {
       const res = await post('/masters/register-by-invite', {
         token: inviteToken,
-        name: tgUser.first_name || tgUser.username || 'Мастер',
-        telegram_id: tgUser.id,
-        username: tgUser.username || null,
-        photo_url: null, // Telegram WebApp не даёт photo_url напрямую
+        name: payload.name || tgUser?.first_name || tgUser?.username || 'Мастер',
+        telegram_id: payload.telegram_id || tgUser?.id || 0,
+        username: payload.username || tgUser?.username || null,
+        photo_url: null,
       })
       // Авто-логин
       setMasterLoggedIn(true)
@@ -383,7 +390,9 @@ function App() {
     setInviteLoading(true)
     try {
       const res = await post('/admin/invite-link')
-      setInviteLink(res.url)
+      setInviteLinkDirect(res.direct_url)
+      setInviteLinkTg(res.telegram_url || '')
+      setInviteLink(res.telegram_url || res.direct_url)
     } catch (e) {
       showToast('Ошибка: ' + e.message)
     }
@@ -511,21 +520,50 @@ function App() {
             <h2 style={{ marginBottom: 8 }}>{tgUser.first_name || tgUser.username}</h2>
             <p style={{ color: 'var(--text-dim)', marginBottom: 24 }}>
               Вы получили приглашение стать мастером в нашем барбершопе.
-              Нажмите кнопку ниже, чтобы подтвердить регистрацию.
             </p>
             <button
               className="btn btn-primary"
-              onClick={handleRegisterByInvite}
+              onClick={() => handleRegisterByInvite()}
               disabled={registering}
             >
               {registering ? 'Регистрация...' : '✅ Стать мастером'}
             </button>
           </div>
         ) : (
-          <div style={{ padding: 24, textAlign: 'center' }}>
-            <p style={{ color: 'var(--text-dim)', marginBottom: 16 }}>
-              Откройте эту ссылку в Telegram, чтобы зарегистрироваться как мастер.
+          <div style={{ padding: 24 }}>
+            <p style={{ color: 'var(--text-dim)', marginBottom: 16, textAlign: 'center' }}>
+              Введите свои данные для регистрации
             </p>
+            <div className="form-group">
+              <label>Ваше имя</label>
+              <input
+                className="form-input"
+                placeholder="Иван"
+                value={manualName}
+                onChange={e => setManualName(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>Telegram username (необязательно)</label>
+              <input
+                className="form-input"
+                placeholder="@username"
+                value={manualTgUsername}
+                onChange={e => setManualTgUsername(e.target.value.replace('@', ''))}
+              />
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={() => handleRegisterByInvite({
+                name: manualName,
+                username: manualTgUsername || null,
+                telegram_id: 0,
+              })}
+              disabled={registering || !manualName.trim()}
+              style={{ marginTop: 8 }}
+            >
+              {registering ? 'Регистрация...' : '✅ Зарегистрироваться'}
+            </button>
           </div>
         )}
         {toast && <div className="toast">{toast}</div>}
@@ -658,35 +696,69 @@ function App() {
                 {/* Инвайт-ссылка */}
                 {inviteLink && (
                   <div className="summary" style={{ marginBottom: 16, fontSize: 14 }}>
-                    {botInfo?.bot_username && !inviteLink.includes('t.me') && (
-                      <p style={{ color: 'var(--accent)', marginBottom: 8, fontSize: 12 }}>
-                        ⚠️ Ссылка откроется в браузере. Чтобы работало внутри Telegram —<br />
-                        настрой Mini App в @BotFather:
-                        <code style={{ display: 'block', background: 'var(--card)', padding: 6, marginTop: 4, borderRadius: 6 }}>
-                          1. /mybots → выбери бота<br />
-                          2. Bot Settings → Menu Button → укажи:<br />
-                          <strong>{botInfo?.mini_app_url}</strong>
-                        </code>
+                    <p style={{ marginBottom: 8, fontWeight: 500 }}>🔗 Отправьте ссылку мастеру:</p>
+
+                    {inviteLinkTg && (
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: 12, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>
+                          Telegram (если настроен Mini App):
+                        </label>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input
+                            className="form-input"
+                            style={{ flex: 1, fontSize: 12 }}
+                            readOnly
+                            value={inviteLinkTg}
+                          />
+                          <button
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(inviteLinkTg)
+                              showToast('Ссылка скопирована!')
+                            }}
+                          >
+                            📋
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {inviteLinkDirect !== inviteLinkTg && (
+                      <div>
+                        <label style={{ fontSize: 12, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>
+                          Прямая ссылка (браузер, если Mini App не настроен):
+                        </label>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input
+                            className="form-input"
+                            style={{ flex: 1, fontSize: 12 }}
+                            readOnly
+                            value={inviteLinkDirect}
+                          />
+                          <button
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(inviteLinkDirect)
+                              showToast('Ссылка скопирована!')
+                            }}
+                          >
+                            📋
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {botInfo?.bot_username && !inviteLinkTg && (
+                      <p style={{ color: 'var(--warning)', marginTop: 8, fontSize: 12 }}>
+                        ⚠️ Telegram ссылка недоступна — нет BOT_TOKEN. Ссылка откроется в браузере.<br />
+                        Чтобы работало внутри Telegram — настрой Mini App в @BotFather:
                       </p>
                     )}
-                    <p style={{ marginBottom: 8, fontWeight: 500 }}>🔗 Отправьте эту ссылку мастеру в Telegram:</p>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input
-                        className="form-input"
-                        style={{ flex: 1, fontSize: 12 }}
-                        readOnly
-                        value={inviteLink}
-                      />
-                      <button
-                        className="btn btn-sm btn-secondary"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(inviteLink)
-                          showToast('Ссылка скопирована!')
-                        }}
-                      >
-                        📋
-                      </button>
-                    </div>
+                    {botInfo?.botfather_help && botInfo?.bot_username && !inviteLinkTg && (
+                      <code style={{ display: 'block', background: 'var(--card)', padding: 6, marginTop: 4, borderRadius: 6, fontSize: 12 }}>
+                        {botInfo.botfather_help}
+                      </code>
+                    )}
                   </div>
                 )}
 

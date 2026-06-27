@@ -128,13 +128,17 @@ def create_invite_link(request: Request, db: Session = Depends(get_db)):
     db.commit()
 
     bot_username = _get_bot_username()
+    base_url = str(request.base_url).rstrip("/")
+    direct_url = f"{base_url}?invite={token}"
+    telegram_url = None
     if bot_username:
-        invite_url = f"https://t.me/{bot_username}/app?startapp=invite_{token}"
-    else:
-        base_url = str(request.base_url).rstrip("/")
-        invite_url = f"{base_url}?invite={token}"
+        telegram_url = f"https://t.me/{bot_username}/app?startapp=invite_{token}"
 
-    return schemas.InviteLinkResponse(url=invite_url, token=token)
+    return schemas.InviteLinkResponse(
+        telegram_url=telegram_url,
+        direct_url=direct_url,
+        token=token,
+    )
 
 
 @router.get("/bot-info")
