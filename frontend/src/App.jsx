@@ -47,6 +47,7 @@ function App() {
   // Инвайт-ссылка (админка)
   const [inviteLink, setInviteLink] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [botInfo, setBotInfo] = useState(null)
 
   // Управление услугами мастера (админка)
   const [editMasterServices, setEditMasterServices] = useState(null)
@@ -73,6 +74,13 @@ function App() {
       app.ready()
       setTg(app)
       setTgUser(app.initDataUnsafe?.user || null)
+
+      // Проверяем start_param (когда открыто через t.me/bot/app?startapp=...)
+      const startParam = app.initDataUnsafe?.start_param || ''
+      if (startParam.startsWith('invite_')) {
+        const token = startParam.replace('invite_', '')
+        if (token) setInviteToken(token)
+      }
     }
 
     // Разбор хэша и параметров
@@ -82,7 +90,7 @@ function App() {
       if (!isNaN(id)) setPreselectMasterId(id)
     }
 
-    // Проверяем инвайт-ссылку (?invite=TOKEN)
+    // Проверяем инвайт-ссылку из URL-параметров (?invite=TOKEN)
     const params = new URLSearchParams(window.location.search)
     const token = params.get('invite')
     if (token) setInviteToken(token)
@@ -317,16 +325,18 @@ function App() {
   }
 
   const loadAdminData = async () => {
-    const [s, b, m, sv] = await Promise.all([
+    const [s, b, m, sv, bi] = await Promise.all([
       get('/admin/stats').catch(() => null),
       get('/admin/bookings').catch(() => []),
       get('/admin/masters').catch(() => []),
       get('/admin/services').catch(() => []),
+      get('/admin/bot-info').catch(() => null),
     ])
     if (s) setAdminStats(s)
     setAdminBookings(b)
     setAdminMasters(m)
     setAdminServices(sv)
+    if (bi) setBotInfo(bi)
   }
 
   const confirmBooking = async (id) => {
@@ -648,6 +658,17 @@ function App() {
                 {/* Инвайт-ссылка */}
                 {inviteLink && (
                   <div className="summary" style={{ marginBottom: 16, fontSize: 14 }}>
+                    {botInfo?.bot_username && !inviteLink.includes('t.me') && (
+                      <p style={{ color: 'var(--accent)', marginBottom: 8, fontSize: 12 }}>
+                        ⚠️ Ссылка откроется в браузере. Чтобы работало внутри Telegram —<br />
+                        настрой Mini App в @BotFather:
+                        <code style={{ display: 'block', background: 'var(--card)', padding: 6, marginTop: 4, borderRadius: 6 }}>
+                          1. /mybots → выбери бота<br />
+                          2. Bot Settings → Menu Button → укажи:<br />
+                          <strong>{botInfo?.mini_app_url}</strong>
+                        </code>
+                      </p>
+                    )}
                     <p style={{ marginBottom: 8, fontWeight: 500 }}>🔗 Отправьте эту ссылку мастеру в Telegram:</p>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <input

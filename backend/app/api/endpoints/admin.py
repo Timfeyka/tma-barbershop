@@ -1,8 +1,10 @@
 import uuid
+import json
+import urllib.request
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
-from app.core.config import ADMIN_PASSWORD
+from app.core.config import ADMIN_PASSWORD, BOT_TOKEN
 from app.models import models
 from app.schemas import schemas
 
@@ -125,11 +127,47 @@ def create_invite_link(request: Request, db: Session = Depends(get_db)):
     db.add(invite)
     db.commit()
 
-    # Определяем базовый URL
-    base_url = str(request.base_url).rstrip("/")
-    invite_url = f"{base_url}?invite={token}"
+    bot_username = _get_bot_username()
+    if bot_username:
+        invite_url = f"https://t.me/{bot_username}/app?startapp=invite_{token}"
+    else:
+        base_url = str(request.base_url).rstrip("/")
+        invite_url = f"{base_url}?invite={token}"
 
     return schemas.InviteLinkResponse(url=invite_url, token=token)
+
+
+@router.get("/bot-info")
+def get_bot_info(request: Request):
+    """Информация о боте + настройка @BotFather"""
+    bot_username = _get_bot_username()
+    current_url = str(request.base_url).rstrip("/")
+    return {
+        "bot_username": bot_username,
+        "has_bot_token": bool(BOT_TOKEN),
+        "mini_app_url": current_url,
+        "botfather_help": (
+            f"1. Откройте @BotFather\n"
+            f"2. /mybots → выберите бота\n"
+            f"3. Bot Settings → Menu Button → укажите: {current_url}\n"
+            f"   Или: Bot Settings → Domain → укажите домен"
+        ),
+    }
+
+
+def _get_bot_username() -> str | None:
+    """Получить username бота через Telegram API"""
+    if not BOT_TOKEN:
+        return None
+    try:
+        req = urllib.request.Request(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            if data.get("ok"):
+                return data["result"].get("username", "")
+    except Exception as e:
+        print(f"⚠️ Не удалось получить username бота: {e}")
+    return None
 
 
 # --- Услуги мастера (админка) ---
