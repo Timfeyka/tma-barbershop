@@ -486,7 +486,7 @@ function App() {
                   <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16 }}>
                     Как узнать ID: напишите боту /start → откройте<br />
                     <code style={{ color: 'var(--accent)' }}>api.telegram.org/botТОКЕН/getUpdates</code><br />
-                    найдите "chat":{{ '"id": 123456789' }}
+                    найдите "chat": {'{'}"id": 123456789{'}'}
                   </p>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-primary" onClick={saveEditMaster}>Сохранить</button>
