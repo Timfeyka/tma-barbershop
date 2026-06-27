@@ -98,3 +98,53 @@ class AdminStats(BaseModel):
     pending_bookings: int
     total_masters: int
     total_services: int
+
+
+# --- Схемы для услуг мастера ---
+class MasterServiceCreate(BaseModel):
+    service_id: int
+    price: Optional[float] = None
+    duration_minutes: Optional[int] = None
+
+
+class MasterServiceResponse(BaseModel):
+    id: int
+    master_id: int
+    service_id: int
+    price: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    service: Optional[ServiceResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --- Схемы для расписания мастера ---
+class MasterScheduleItem(BaseModel):
+    day_of_week: int
+    is_working: bool = True
+    start_time: str = "10:00"
+    end_time: str = "20:00"
+
+
+class MasterScheduleUpdate(BaseModel):
+    schedule: List[MasterScheduleItem]
+
+
+# --- Схемы для инвайт-регистрации ---
+class InviteLinkResponse(BaseModel):
+    url: str
+    token: str
+
+
+class RegisterByInvite(BaseModel):
+    token: str
+    name: str
+    telegram_id: int
+    username: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+class MasterRegisterResponse(BaseModel):
+    master: MasterResponse
+    message: str = "Добро пожаловать! Вы зарегистрированы как мастер."

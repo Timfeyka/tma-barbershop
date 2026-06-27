@@ -30,24 +30,47 @@ def get_bookings_by_master(master_id: int, db: Session = Depends(get_db)):
 
 @router.get("/available-slots/{master_id}/{date}")
 def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)):
-    """Получить доступные слоты для мастера на определённую дату"""
+    """Получить доступные слоты для мастера на определённую дату (по его расписанию)"""
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD")
 
-    # Получаем все услуги мастера для определения длительности
-    # Рабочий день: 10:00 - 20:00
-    work_start = 10
-    work_end = 20
+    master = db.query(models.Master).filter(models.Master.id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=404, detail="Мастер не найден")
+
+    # Получаем расписание мастера на этот день недели (0=пн ... 6=вс)
+    day_of_week = target_date.weekday()
+
+    schedule = db.query(models.MasterSchedule).filter(
+        models.MasterSchedule.master_id == master_id,
+        models.MasterSchedule.day_of_week == day_of_week,
+    ).first()
+
+    if not schedule or not schedule.is_working:
+        return {"date": date, "slots": [], "note": "Мастер не работает в этот день"}
+
+    # Генерируем слоты по расписанию
+    try:
+        start_h, start_m = map(int, schedule.start_time.split(":"))
+        end_h, end_m = map(int, schedule.end_time.split(":"))
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Ошибка в формате расписания")
+
     all_slots = []
-    for hour in range(work_start, work_end):
-        all_slots.append(f"{hour:02d}:00")
-        all_slots.append(f"{hour:02d}:30")
+    hour = start_h
+    minute = start_m
+    while hour < end_h or (hour == end_h and minute < end_m):
+        all_slots.append(f"{hour:02d}:{minute:02d}")
+        minute += 30
+        if minute >= 60:
+            hour += 1
+            minute = 0
 
     # Получаем занятые слоты
-    day_start = datetime.combine(target_date, datetime.min.time().replace(hour=work_start))
-    day_end = datetime.combine(target_date, datetime.min.time().replace(hour=work_end))
+    day_start = datetime.combine(target_date, datetime.min.time().replace(hour=start_h, minute=start_m))
+    day_end = datetime.combine(target_date, datetime.min.time().replace(hour=end_h, minute=end_m))
 
     booked = db.query(models.Booking).filter(
         models.Booking.master_id == master_id,

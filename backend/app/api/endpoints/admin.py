@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.config import ADMIN_PASSWORD
 from app.models import models
@@ -107,7 +108,100 @@ def admin_delete_service(service_id: int, db: Session = Depends(get_db)):
     service = db.query(models.Service).filter(models.Service.id == service_id).first()
     if not service:
         raise HTTPException(status_code=404, detail="Услуга не найдена")
+    # Удаляем связи с мастерами
+    db.query(models.MasterService).filter(models.MasterService.service_id == service_id).delete()
     db.delete(service)
+    db.commit()
+    return {"status": "deleted"}
+
+
+# --- Инвайт-ссылки для регистрации мастеров ---
+
+@router.post("/invite-link", response_model=schemas.InviteLinkResponse)
+def create_invite_link(request: Request, db: Session = Depends(get_db)):
+    """Создать инвайт-ссылку для регистрации мастера через Telegram"""
+    token = uuid.uuid4().hex[:16]
+    invite = models.MasterInvite(token=token)
+    db.add(invite)
+    db.commit()
+
+    # Определяем базовый URL
+    base_url = str(request.base_url).rstrip("/")
+    invite_url = f"{base_url}?invite={token}"
+
+    return schemas.InviteLinkResponse(url=invite_url, token=token)
+
+
+# --- Услуги мастера (админка) ---
+
+@router.post("/masters/{master_id}/services", response_model=schemas.MasterServiceResponse)
+def admin_link_service_to_master(master_id: int, payload: schemas.MasterServiceCreate, db: Session = Depends(get_db)):
+    """Привязать услугу к мастеру"""
+    master = db.query(models.Master).filter(models.Master.id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=404, detail="Мастер не найден")
+
+    service = db.query(models.Service).filter(models.Service.id == payload.service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Услуга не найдена")
+
+    # Проверяем, не привязана ли уже
+    existing = db.query(models.MasterService).filter(
+        models.MasterService.master_id == master_id,
+        models.MasterService.service_id == payload.service_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Эта услуга уже привязана к мастеру")
+
+    ms = models.MasterService(
+        master_id=master_id,
+        service_id=payload.service_id,
+        price=payload.price,
+        duration_minutes=payload.duration_minutes,
+    )
+    db.add(ms)
+    db.commit()
+    db.refresh(ms)
+
+    # Загружаем с сервисом
+    ms = db.query(models.MasterService).options(
+        joinedload(models.MasterService.service)
+    ).filter(models.MasterService.id == ms.id).first()
+    return ms
+
+
+@router.put("/masters/{master_id}/services/{ms_id}", response_model=schemas.MasterServiceResponse)
+def admin_update_master_service(master_id: int, ms_id: int, payload: schemas.MasterServiceCreate, db: Session = Depends(get_db)):
+    """Обновить цену/длительность услуги мастера"""
+    ms = db.query(models.MasterService).options(
+        joinedload(models.MasterService.service)
+    ).filter(
+        models.MasterService.id == ms_id,
+        models.MasterService.master_id == master_id,
+    ).first()
+    if not ms:
+        raise HTTPException(status_code=404, detail="Связь не найдена")
+
+    if payload.price is not None:
+        ms.price = payload.price
+    if payload.duration_minutes is not None:
+        ms.duration_minutes = payload.duration_minutes
+
+    db.commit()
+    db.refresh(ms)
+    return ms
+
+
+@router.delete("/masters/{master_id}/services/{ms_id}")
+def admin_unlink_service_from_master(master_id: int, ms_id: int, db: Session = Depends(get_db)):
+    """Отвязать услугу от мастера"""
+    ms = db.query(models.MasterService).filter(
+        models.MasterService.id == ms_id,
+        models.MasterService.master_id == master_id,
+    ).first()
+    if not ms:
+        raise HTTPException(status_code=404, detail="Связь не найдена")
+    db.delete(ms)
     db.commit()
     return {"status": "deleted"}
 

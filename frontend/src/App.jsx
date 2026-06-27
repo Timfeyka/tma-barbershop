@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { get, post, put, del } from './api'
 import './App.css'
 
+const DAYS_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+const DAYS_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+
 function App() {
   const [tg, setTg] = useState(null)
   const [toast, setToast] = useState(null)
@@ -17,6 +20,7 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(null)
   const [selectedSlot, setSelectedSlot] = useState(null)
   const [slots, setSlots] = useState([])
+  const [masterServices, setMasterServices] = useState([])
 
   // Мастер (просмотр записей)
   const [masterLoggedIn, setMasterLoggedIn] = useState(false)
@@ -24,6 +28,9 @@ function App() {
   const [masterBookings, setMasterBookings] = useState([])
   const [masterLoginId, setMasterLoginId] = useState('')
   const [masterLoginError, setMasterLoginError] = useState('')
+  const [masterTab, setMasterTab] = useState('bookings')
+  const [masterServicesList, setMasterServicesList] = useState([])
+  const [masterSchedule, setMasterSchedule] = useState([])
 
   // Админка
   const [isAdmin, setIsAdmin] = useState(window.location.hash === '#admin')
@@ -36,6 +43,22 @@ function App() {
   const [adminServices, setAdminServices] = useState([])
   const [editingMaster, setEditingMaster] = useState(null)
   const [editTgId, setEditTgId] = useState('')
+
+  // Инвайт-ссылка (админка)
+  const [inviteLink, setInviteLink] = useState('')
+  const [inviteLoading, setInviteLoading] = useState(false)
+
+  // Управление услугами мастера (админка)
+  const [editMasterServices, setEditMasterServices] = useState(null)
+  const [editMasterServicesData, setEditMasterServicesData] = useState([])
+
+  // Управление расписанием мастера (админка)
+  const [editMasterSchedule, setEditMasterSchedule] = useState(null)
+  const [editMasterScheduleData, setEditMasterScheduleData] = useState([])
+
+  // Регистрация по инвайту
+  const [inviteToken, setInviteToken] = useState(null)
+  const [registering, setRegistering] = useState(false)
 
   // Секретный вход в админку
   const [tapCount, setTapCount] = useState(0)
@@ -52,12 +75,17 @@ function App() {
       setTgUser(app.initDataUnsafe?.user || null)
     }
 
-    // Разбор хэша
+    // Разбор хэша и параметров
     const hash = window.location.hash
     if (hash.startsWith('#master/')) {
       const id = parseInt(hash.split('/')[1], 10)
       if (!isNaN(id)) setPreselectMasterId(id)
     }
+
+    // Проверяем инвайт-ссылку (?invite=TOKEN)
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('invite')
+    if (token) setInviteToken(token)
 
     Promise.all([
       get('/masters/').catch(() => []),
@@ -67,7 +95,6 @@ function App() {
       setServices(s)
 
       // Если есть предвыбор мастера по ссылке — сразу выбираем
-      const hash = window.location.hash
       if (hash.startsWith('#master/')) {
         const id = parseInt(hash.split('/')[1], 10)
         if (!isNaN(id)) {
@@ -75,6 +102,7 @@ function App() {
           if (master) {
             setSelectedMaster(master)
             setStep('services')
+            loadMasterServices(master.id)
           }
         }
       }
@@ -99,6 +127,7 @@ function App() {
     setSelectedDate(null)
     setSelectedSlot(null)
     setSlots([])
+    setMasterServices([])
   }
 
   // 5 тапов по шапке → админка
@@ -115,11 +144,46 @@ function App() {
     setTapTimer(setTimeout(() => setTapCount(0), 1500))
   }
 
+  // ===== УСЛУГИ МАСТЕРА =====
+
+  const loadMasterServices = async (masterId) => {
+    const data = await get(`/masters/${masterId}/services`).catch(() => [])
+    setMasterServices(data)
+    return data
+  }
+
+  // ===== РЕГИСТРАЦИЯ ПО ИНВАЙТУ =====
+
+  const handleRegisterByInvite = async () => {
+    if (!tgUser || !inviteToken) return
+    setRegistering(true)
+    try {
+      const res = await post('/masters/register-by-invite', {
+        token: inviteToken,
+        name: tgUser.first_name || tgUser.username || 'Мастер',
+        telegram_id: tgUser.id,
+        username: tgUser.username || null,
+        photo_url: null, // Telegram WebApp не даёт photo_url напрямую
+      })
+      // Авто-логин
+      setMasterLoggedIn(true)
+      setMasterViewMaster(res.master)
+      loadMasterBookings(res.master.id)
+      setInviteToken(null)
+      setRegistering(false)
+      showToast(res.message)
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+      setRegistering(false)
+    }
+  }
+
   // ===== БРОНИРОВАНИЕ =====
 
-  const handleSelectMaster = (master) => {
+  const handleSelectMaster = async (master) => {
     setSelectedMaster(master)
     setStep('services')
+    await loadMasterServices(master.id)
   }
 
   const handleSelectService = (service) => {
@@ -160,7 +224,6 @@ function App() {
   }
 
   // ===== ВХОД МАСТЕРА =====
-  // Проверяем, может текущий Telegram user — мастер (по telegram_id)
   const getAutoMaster = () => {
     if (!tgUser?.id || masters.length === 0) return null
     return masters.find(m => m.telegram_id === tgUser.id) || null
@@ -177,7 +240,6 @@ function App() {
       setMasterLoginError('Мастер с таким ID не найден')
       return
     }
-    // Успешный вход
     setMasterLoggedIn(true)
     setMasterViewMaster(master)
     loadMasterBookings(master.id)
@@ -194,7 +256,50 @@ function App() {
     setMasterViewMaster(null)
     setMasterBookings([])
     setMasterLoginId('')
+    setMasterTab('bookings')
     setStep('masters')
+  }
+
+  // ===== ДАШБОРД МАСТЕРА: УСЛУГИ =====
+
+  const loadMasterOwnServices = async () => {
+    if (!masterViewMaster) return
+    const data = await get(`/masters/${masterViewMaster.id}/services`).catch(() => [])
+    setMasterServicesList(data)
+  }
+
+  const loadMasterOwnSchedule = async () => {
+    if (!masterViewMaster) return
+    const data = await get(`/masters/${masterViewMaster.id}/schedule`).catch(() => [])
+    setMasterSchedule(data)
+  }
+
+  const handleMasterAddService = async (serviceId) => {
+    if (!masterViewMaster) return
+    try {
+      await post(`/admin/masters/${masterViewMaster.id}/services`, { service_id: serviceId })
+      showToast('Услуга добавлена')
+      loadMasterOwnServices()
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    }
+  }
+
+  const handleMasterRemoveService = async (msId) => {
+    if (!masterViewMaster) return
+    await del(`/admin/masters/${masterViewMaster.id}/services/${msId}`)
+    showToast('Услуга удалена')
+    loadMasterOwnServices()
+  }
+
+  const handleMasterSaveSchedule = async () => {
+    if (!masterViewMaster) return
+    try {
+      await put(`/masters/${masterViewMaster.id}/schedule`, { schedule: masterSchedule })
+      showToast('Расписание сохранено!')
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    }
   }
 
   // ===== АДМИНКА =====
@@ -262,9 +367,68 @@ function App() {
     loadAdminData()
   }
 
+  // --- Инвайт ---
+
+  const handleCreateInviteLink = async () => {
+    setInviteLoading(true)
+    try {
+      const res = await post('/admin/invite-link')
+      setInviteLink(res.url)
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    }
+    setInviteLoading(false)
+  }
+
+  // --- Услуги мастера в админке ---
+
+  const openEditMasterServices = async (master) => {
+    setEditMasterServices(master)
+    const data = await get(`/masters/${master.id}/services`).catch(() => [])
+    setEditMasterServicesData(data)
+  }
+
+  const handleAdminLinkService = async (serviceId) => {
+    if (!editMasterServices) return
+    try {
+      await post(`/admin/masters/${editMasterServices.id}/services`, { service_id: serviceId })
+      showToast('Услуга добавлена мастеру')
+      const data = await get(`/masters/${editMasterServices.id}/services`).catch(() => [])
+      setEditMasterServicesData(data)
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    }
+  }
+
+  const handleAdminUnlinkService = async (msId) => {
+    if (!editMasterServices) return
+    await del(`/admin/masters/${editMasterServices.id}/services/${msId}`)
+    showToast('Услуга отвязана')
+    const data = await get(`/masters/${editMasterServices.id}/services`).catch(() => [])
+    setEditMasterServicesData(data)
+  }
+
+  // --- Расписание мастера в админке ---
+
+  const openEditMasterSchedule = async (master) => {
+    setEditMasterSchedule(master)
+    const data = await get(`/masters/${master.id}/schedule`).catch(() => [])
+    setEditMasterScheduleData(data.length ? data : getDefaultSchedule())
+  }
+
+  const handleAdminSaveSchedule = async () => {
+    if (!editMasterSchedule) return
+    try {
+      await put(`/masters/${editMasterSchedule.id}/schedule`, { schedule: editMasterScheduleData })
+      showToast('Расписание сохранено')
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    }
+  }
+
   // ===== УТИЛИТЫ =====
 
-  const getDates = () => {
+  const getDefaults = () => {
     const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
     const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
     return Array.from({ length: 7 }, (_, i) => {
@@ -279,6 +443,18 @@ function App() {
     })
   }
 
+  const getDefaultSchedule = () => {
+    return [
+      { day_of_week: 0, is_working: true, start_time: "10:00", end_time: "20:00" },
+      { day_of_week: 1, is_working: true, start_time: "10:00", end_time: "20:00" },
+      { day_of_week: 2, is_working: true, start_time: "10:00", end_time: "20:00" },
+      { day_of_week: 3, is_working: true, start_time: "10:00", end_time: "20:00" },
+      { day_of_week: 4, is_working: true, start_time: "10:00", end_time: "20:00" },
+      { day_of_week: 5, is_working: true, start_time: "10:00", end_time: "18:00" },
+      { day_of_week: 6, is_working: false, start_time: "10:00", end_time: "18:00" },
+    ]
+  }
+
   const formatBookingDate = (iso) => {
     return new Date(iso).toLocaleString('ru-RU', {
       day: 'numeric', month: 'long', weekday: 'short',
@@ -286,11 +462,19 @@ function App() {
     })
   }
 
-  // Получаем ссылку на мастера (для копирования)
   const getMasterLink = (masterId) => {
-    const url = window.location.origin + window.location.pathname + `#master/${masterId}`
-    return url
+    return window.location.origin + window.location.pathname + `#master/${masterId}`
   }
+
+  const isServiceLinked = (serviceId) => {
+    return editMasterServicesData.some(ms => ms.service_id === serviceId)
+  }
+
+  const isOwnServiceLinked = (serviceId) => {
+    return masterServicesList.some(ms => ms.service_id === serviceId)
+  }
+
+  // ===== РЕНДЕР =====
 
   if (loading) {
     return (
@@ -299,6 +483,42 @@ function App() {
           <div className="spinner" />
           Загрузка...
         </div>
+      </div>
+    )
+  }
+
+  // ===== ЭКРАН РЕГИСТРАЦИИ ПО ИНВАЙТУ =====
+  if (inviteToken && !masterLoggedIn) {
+    return (
+      <div className="app">
+        <header className="header">
+          <div className="header-logo">💈</div>
+          <h1>Регистрация мастера</h1>
+        </header>
+        {tgUser ? (
+          <div style={{ padding: 24, textAlign: 'center' }}>
+            <span style={{ fontSize: 48, display: 'block', marginBottom: 16 }}>👋</span>
+            <h2 style={{ marginBottom: 8 }}>{tgUser.first_name || tgUser.username}</h2>
+            <p style={{ color: 'var(--text-dim)', marginBottom: 24 }}>
+              Вы получили приглашение стать мастером в нашем барбершопе.
+              Нажмите кнопку ниже, чтобы подтвердить регистрацию.
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={handleRegisterByInvite}
+              disabled={registering}
+            >
+              {registering ? 'Регистрация...' : '✅ Стать мастером'}
+            </button>
+          </div>
+        ) : (
+          <div style={{ padding: 24, textAlign: 'center' }}>
+            <p style={{ color: 'var(--text-dim)', marginBottom: 16 }}>
+              Откройте эту ссылку в Telegram, чтобы зарегистрироваться как мастер.
+            </p>
+          </div>
+        )}
+        {toast && <div className="toast">{toast}</div>}
       </div>
     )
   }
@@ -418,7 +638,37 @@ function App() {
 
             {adminTab === 'masters' && (
               <div className="admin-section">
-                <h3>Мастера</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h3 style={{ margin: 0 }}>Мастера</h3>
+                  <button className="btn btn-sm btn-primary" onClick={handleCreateInviteLink} disabled={inviteLoading}>
+                    {inviteLoading ? '...' : '➕ Добавить'}
+                  </button>
+                </div>
+
+                {/* Инвайт-ссылка */}
+                {inviteLink && (
+                  <div className="summary" style={{ marginBottom: 16, fontSize: 14 }}>
+                    <p style={{ marginBottom: 8, fontWeight: 500 }}>🔗 Отправьте эту ссылку мастеру в Telegram:</p>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        className="form-input"
+                        style={{ flex: 1, fontSize: 12 }}
+                        readOnly
+                        value={inviteLink}
+                      />
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(inviteLink)
+                          showToast('Ссылка скопирована!')
+                        }}
+                      >
+                        📋
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {adminMasters.length === 0 ? (
                   <div className="empty-state"><div className="icon">👨‍💼</div><p>Нет мастеров</p></div>
                 ) : (
@@ -433,8 +683,14 @@ function App() {
                         </small>
                       </div>
                       <div className="admin-actions">
-                        <button className="btn btn-sm btn-secondary" onClick={() => openEditMaster(m)} style={{ marginRight: 6 }}>
-                          ✏️ TG
+                        <button className="btn btn-sm btn-secondary" onClick={() => openEditMaster(m)} style={{ marginRight: 4 }} title="Изменить Telegram ID">
+                          ✏️
+                        </button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => openEditMasterServices(m)} style={{ marginRight: 4 }} title="Услуги мастера">
+                          🛠
+                        </button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => openEditMasterSchedule(m)} style={{ marginRight: 4 }} title="Расписание">
+                          📅
                         </button>
                         <button className="btn btn-sm btn-danger" onClick={() => deleteMaster(m.id)}>
                           ✕
@@ -468,13 +724,13 @@ function App() {
               </div>
             )}
 
-            {/* Модалка редактирования мастера */}
+            {/* Модалка: Telegram ID мастера */}
             {editingMaster && (
               <div className="modal-overlay" onClick={() => setEditingMaster(null)}>
                 <div className="modal" onClick={e => e.stopPropagation()}>
                   <h3>Редактировать: {editingMaster.name}</h3>
                   <div className="form-group">
-                    <label>Telegram ID (для отправки уведомлений)</label>
+                    <label>Telegram ID</label>
                     <input
                       className="form-input"
                       type="number"
@@ -485,12 +741,119 @@ function App() {
                   </div>
                   <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16 }}>
                     Как узнать ID: напишите боту /start → откройте<br />
-                    <code style={{ color: 'var(--accent)' }}>api.telegram.org/botТОКЕН/getUpdates</code><br />
-                    найдите "chat": {'{'}"id": 123456789{'}'}
+                    <code style={{ color: 'var(--accent)' }}>api.telegram.org/botТОКЕН/getUpdates</code>
                   </p>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-primary" onClick={saveEditMaster}>Сохранить</button>
                     <button className="btn btn-secondary" onClick={() => setEditingMaster(null)}>Отмена</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Модалка: услуги мастера */}
+            {editMasterServices && (
+              <div className="modal-overlay" onClick={() => setEditMasterServices(null)}>
+                <div className="modal" onClick={e => e.stopPropagation()}>
+                  <h3>Услуги: {editMasterServices.name}</h3>
+                  <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12 }}>
+                    Отметьте услуги, которые оказывает этот мастер
+                  </p>
+                  <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
+                    {adminServices.map(s => (
+                      <div key={s.id} className="admin-item" style={{ padding: '8px 0' }}>
+                        <div className="admin-item-info">
+                          <h4 style={{ fontSize: 14, margin: 0 }}>
+                            {isServiceLinked(s.id) ? '✅ ' : ''}{s.title}
+                          </h4>
+                          <span style={{ fontSize: 12 }}>{s.price} ₽ · {s.duration_minutes} мин</span>
+                        </div>
+                        <div className="admin-actions">
+                          {isServiceLinked(s.id) ? (
+                            <button className="btn btn-sm btn-danger" onClick={() => {
+                              const ms = editMasterServicesData.find(x => x.service_id === s.id)
+                              if (ms) handleAdminUnlinkService(ms.id)
+                            }}>
+                              ✕
+                            </button>
+                          ) : (
+                            <button className="btn btn-sm btn-success" onClick={() => handleAdminLinkService(s.id)}>
+                              +
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn btn-secondary" onClick={() => setEditMasterServices(null)}>Закрыть</button>
+                </div>
+              </div>
+            )}
+
+            {/* Модалка: расписание мастера */}
+            {editMasterSchedule && (
+              <div className="modal-overlay" onClick={() => setEditMasterSchedule(null)}>
+                <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+                  <h3>Расписание: {editMasterSchedule.name}</h3>
+                  {editMasterScheduleData.map((item, i) => (
+                    <div key={item.day_of_week} style={{
+                      display: 'flex', gap: 8, alignItems: 'center',
+                      padding: '8px 0', borderBottom: '1px solid var(--border)',
+                    }}>
+                      <div style={{ minWidth: 100 }}>
+                        <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={item.is_working}
+                            onChange={e => {
+                              const next = [...editMasterScheduleData]
+                              next[i] = { ...next[i], is_working: e.target.checked }
+                              setEditMasterScheduleData(next)
+                            }}
+                          />
+                          {DAYS_FULL[item.day_of_week]}
+                        </label>
+                      </div>
+                      {item.is_working && (
+                        <>
+                          <input
+                            className="form-input"
+                            style={{ flex: 1, fontSize: 13, padding: '6px 8px' }}
+                            type="time"
+                            value={item.start_time}
+                            onChange={e => {
+                              const next = [...editMasterScheduleData]
+                              next[i] = { ...next[i], start_time: e.target.value }
+                              setEditMasterScheduleData(next)
+                            }}
+                          />
+                          <span style={{ color: 'var(--text-dim)' }}>—</span>
+                          <input
+                            className="form-input"
+                            style={{ flex: 1, fontSize: 13, padding: '6px 8px' }}
+                            type="time"
+                            value={item.end_time}
+                            onChange={e => {
+                              const next = [...editMasterScheduleData]
+                              next[i] = { ...next[i], end_time: e.target.value }
+                              setEditMasterScheduleData(next)
+                            }}
+                          />
+                        </>
+                      )}
+                      {!item.is_working && (
+                        <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>Выходной</span>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                    <button className="btn btn-primary" onClick={() => {
+                      handleAdminSaveSchedule()
+                      setEditMasterSchedule(null)
+                    }}>
+                      Сохранить
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => setEditMasterSchedule(null)}>Закрыть</button>
                   </div>
                 </div>
               </div>
@@ -503,54 +866,186 @@ function App() {
     )
   }
 
-  // ===== ДАШБОРД МАСТЕРА (после входа) =====
+  // ===== ДАШБОРД МАСТЕРА =====
   if (masterLoggedIn && masterViewMaster) {
     return (
       <div className="app">
         <header className="header">
           <div className="header-logo">💈</div>
           <h1>{masterViewMaster.name}</h1>
-          <p className="header-sub">{masterViewMaster.role} — мои записи</p>
+          <p className="header-sub">{masterViewMaster.role}</p>
         </header>
 
         <button className="back-btn" onClick={logoutMaster}>
           ← Выйти
         </button>
 
-        {/* Кнопка копирования ссылки на мастера */}
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <button
-            className="btn btn-secondary"
-            style={{ display: 'inline-block', width: 'auto', padding: '8px 20px', fontSize: 14 }}
-            onClick={() => {
-              navigator.clipboard?.writeText(getMasterLink(masterViewMaster.id))
-              showToast('Ссылка скопирована!')
-            }}
-          >
-            🔗 Скопировать ссылку на запись
-          </button>
-        </div>
+        {/* Табы мастера */}
+        <nav className="nav-tabs" style={{ marginTop: 4 }}>
+          {[
+            { key: 'bookings', label: '📅 Записи' },
+            { key: 'services', label: '✂️ Услуги' },
+            { key: 'schedule', label: '📅 График' },
+          ].map(t => (
+            <button
+              key={t.key}
+              className={`nav-tab ${masterTab === t.key ? 'active' : ''}`}
+              onClick={() => {
+                setMasterTab(t.key)
+                if (t.key === 'services') loadMasterOwnServices()
+                if (t.key === 'schedule') loadMasterOwnSchedule()
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
 
-        {masterBookings.length === 0 ? (
-          <div className="empty-state"><div className="icon">📅</div><p>У вас пока нет записей</p></div>
-        ) : (
-          [...masterBookings]
-            .sort((a, b) => new Date(a.booking_time) - new Date(b.booking_time))
-            .map(b => (
-              <div key={b.id} className="booking-card" style={{ cursor: 'default' }}>
-                <div className="booking-header">
-                  <div className="booking-service">{b.service?.title}</div>
-                  <span className={`admin-badge ${b.is_confirmed ? 'badge-confirmed' : 'badge-pending'}`}>
-                    {b.is_confirmed ? 'Подтверждено' : 'Ожидает'}
-                  </span>
-                </div>
-                <div className="booking-details">
-                  <strong>Клиент:</strong> {b.customer_name}{b.customer_tg_username ? ` (@${b.customer_tg_username})` : ''}<br />
-                  <strong>Время:</strong> {formatBookingDate(b.booking_time)}<br />
-                  <strong>Цена:</strong> {b.service?.price} ₽
-                </div>
+        {/* Записи мастера */}
+        {masterTab === 'bookings' && (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: 16, marginTop: 8 }}>
+              <button
+                className="btn btn-secondary"
+                style={{ display: 'inline-block', width: 'auto', padding: '8px 20px', fontSize: 14 }}
+                onClick={() => {
+                  navigator.clipboard?.writeText(getMasterLink(masterViewMaster.id))
+                  showToast('Ссылка скопирована!')
+                }}
+              >
+                🔗 Скопировать ссылку на запись
+              </button>
+            </div>
+            {masterBookings.length === 0 ? (
+              <div className="empty-state"><div className="icon">📅</div><p>У вас пока нет записей</p></div>
+            ) : (
+              [...masterBookings]
+                .sort((a, b) => new Date(a.booking_time) - new Date(b.booking_time))
+                .map(b => (
+                  <div key={b.id} className="booking-card" style={{ cursor: 'default' }}>
+                    <div className="booking-header">
+                      <div className="booking-service">{b.service?.title}</div>
+                      <span className={`admin-badge ${b.is_confirmed ? 'badge-confirmed' : 'badge-pending'}`}>
+                        {b.is_confirmed ? 'Подтверждено' : 'Ожидает'}
+                      </span>
+                    </div>
+                    <div className="booking-details">
+                      <strong>Клиент:</strong> {b.customer_name}{b.customer_tg_username ? ` (@${b.customer_tg_username})` : ''}<br />
+                      <strong>Время:</strong> {formatBookingDate(b.booking_time)}<br />
+                      <strong>Цена:</strong> {b.service?.price} ₽
+                    </div>
+                  </div>
+                ))
+            )}
+          </>
+        )}
+
+        {/* Услуги мастера */}
+        {masterTab === 'services' && (
+          <div style={{ marginTop: 8 }}>
+            <h3 style={{ marginBottom: 12 }}>Мои услуги</h3>
+            {masterServicesList.length === 0 ? (
+              <div className="empty-state"><div className="icon">✂️</div><p>У вас пока нет услуг</p></div>
+            ) : (
+              masterServicesList.map(ms => {
+                const price = ms.price || ms.service?.price
+                const dur = ms.duration_minutes || ms.service?.duration_minutes
+                return (
+                  <div key={ms.id} className="admin-item">
+                    <div className="admin-item-info">
+                      <h4>{ms.service?.title}</h4>
+                      <span>{price} ₽ · {dur} мин</span>
+                    </div>
+                    <div className="admin-actions">
+                      <button className="btn btn-sm btn-danger" onClick={() => handleMasterRemoveService(ms.id)}>
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+            <details style={{ marginTop: 16 }}>
+              <summary style={{ color: 'var(--accent)', cursor: 'pointer', fontSize: 14 }}>
+                ➕ Добавить услугу
+              </summary>
+              <div style={{ marginTop: 12 }}>
+                {services.filter(s => !isOwnServiceLinked(s.id)).map(s => (
+                  <div key={s.id} className="admin-item">
+                    <div className="admin-item-info">
+                      <h4 style={{ fontSize: 14 }}>{s.title}</h4>
+                      <span style={{ fontSize: 12 }}>{s.price} ₽ · {s.duration_minutes} мин</span>
+                    </div>
+                    <div className="admin-actions">
+                      <button className="btn btn-sm btn-success" onClick={() => handleMasterAddService(s.id)}>
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))
+            </details>
+          </div>
+        )}
+
+        {/* Расписание мастера */}
+        {masterTab === 'schedule' && (
+          <div style={{ marginTop: 8 }}>
+            <h3 style={{ marginBottom: 12 }}>Моё расписание</h3>
+            {masterSchedule.map((item, i) => (
+              <div key={item.day_of_week} style={{
+                display: 'flex', gap: 8, alignItems: 'center',
+                padding: '10px 0', borderBottom: '1px solid var(--border)',
+              }}>
+                <div style={{ minWidth: 90 }}>
+                  <label style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={item.is_working}
+                      onChange={e => {
+                        const next = [...masterSchedule]
+                        next[i] = { ...next[i], is_working: e.target.checked }
+                        setMasterSchedule(next)
+                      }}
+                    />
+                    {DAYS_FULL[item.day_of_week]}
+                  </label>
+                </div>
+                {item.is_working ? (
+                  <>
+                    <input
+                      className="form-input"
+                      style={{ flex: 1, fontSize: 13, padding: '6px 8px' }}
+                      type="time"
+                      value={item.start_time}
+                      onChange={e => {
+                        const next = [...masterSchedule]
+                        next[i] = { ...next[i], start_time: e.target.value }
+                        setMasterSchedule(next)
+                      }}
+                    />
+                    <span style={{ color: 'var(--text-dim)' }}>—</span>
+                    <input
+                      className="form-input"
+                      style={{ flex: 1, fontSize: 13, padding: '6px 8px' }}
+                      type="time"
+                      value={item.end_time}
+                      onChange={e => {
+                        const next = [...masterSchedule]
+                        next[i] = { ...next[i], end_time: e.target.value }
+                        setMasterSchedule(next)
+                      }}
+                    />
+                  </>
+                ) : (
+                  <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>Выходной</span>
+                )}
+              </div>
+            ))}
+            <button className="btn btn-primary" onClick={handleMasterSaveSchedule} style={{ marginTop: 16 }}>
+              💾 Сохранить расписание
+            </button>
+          </div>
         )}
 
         {toast && <div className="toast">{toast}</div>}
@@ -570,7 +1065,7 @@ function App() {
         )}
       </header>
 
-      {/* Кнопка "Я мастер" — только на главном экране */}
+      {/* Кнопка "Я мастер" */}
       {step === 'masters' && (
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <button
@@ -590,7 +1085,7 @@ function App() {
 
       {step !== 'masters' && (
         <button className="back-btn" onClick={() => {
-          if (step === 'services') { setStep('masters'); setSelectedMaster(null) }
+          if (step === 'services') { setStep('masters'); setSelectedMaster(null); setMasterServices([]) }
           else if (step === 'datetime') { setStep('services'); setSelectedService(null) }
           else if (step === 'master_login') { setStep('masters') }
           else if (step === 'confirmation') resetBooking()
@@ -627,7 +1122,6 @@ function App() {
         <>
           <h2 className="section-title">Вход для мастера</h2>
 
-          {/* Автовход по Telegram ID */}
           {getAutoMaster() && (
             <div className="summary" style={{ marginBottom: 16 }}>
               <p style={{ textAlign: 'center', marginBottom: 12 }}>
@@ -685,20 +1179,38 @@ function App() {
           <h2 className="section-title">
             {selectedMaster ? `Услуги у ${selectedMaster.name}` : 'Выберите услугу'}
           </h2>
-          {Array.from(new Set(services.map(s => s.category))).map(cat => (
-            <div key={cat}>
-              <div className="category-label">{cat}</div>
-              {services.filter(s => s.category === cat).map(s => (
-                <div key={s.id} className="service-card" onClick={() => handleSelectService(s)}>
-                  <div className="service-left">
-                    <h4>{s.title}</h4>
-                    <span className="service-duration">{s.duration_minutes} мин</span>
-                  </div>
-                  <div className="service-price">{s.price} <small>₽</small></div>
+          {/* Показываем услуги мастера, если они есть, иначе все услуги */}
+          {(masterServices.length > 0 ? masterServices : services.map(s => ({ service: s, price: null, duration_minutes: null }))).length === 0 ? (
+            <div className="empty-state"><div className="icon">✂️</div><p>У мастера пока нет услуг</p></div>
+          ) : (
+            (() => {
+              const items = masterServices.length > 0
+                ? masterServices.map(ms => ({
+                    id: ms.service?.id || ms.id,
+                    title: ms.service?.title,
+                    price: ms.price || ms.service?.price,
+                    duration_minutes: ms.duration_minutes || ms.service?.duration_minutes,
+                    category: ms.service?.category,
+                  }))
+                : services.map(s => ({ ...s, id: s.id }))
+
+              const categories = [...new Set(items.map(s => s.category).filter(Boolean))]
+              return categories.map(cat => (
+                <div key={cat}>
+                  <div className="category-label">{cat}</div>
+                  {items.filter(s => s.category === cat).map(s => (
+                    <div key={s.id} className="service-card" onClick={() => handleSelectService(s)}>
+                      <div className="service-left">
+                        <h4>{s.title}</h4>
+                        <span className="service-duration">{s.duration_minutes} мин</span>
+                      </div>
+                      <div className="service-price">{s.price} <small>₽</small></div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ))}
+              ))
+            })()
+          )}
         </>
       )}
 
@@ -706,7 +1218,7 @@ function App() {
         <>
           <h2 className="section-title">Выберите дату и время</h2>
           <div className="date-picker">
-            {getDates().map(d => (
+            {getDefaults().map(d => (
               <button
                 key={d.dateStr}
                 className={`date-btn ${selectedDate === d.dateStr ? 'active' : ''}`}
@@ -734,7 +1246,7 @@ function App() {
           )}
           {selectedDate && slots.length === 0 && (
             <p style={{ textAlign: 'center', color: 'var(--text-dim)', marginTop: 24 }}>
-              Загрузка расписания...
+              Свободных слотов нет
             </p>
           )}
           {selectedSlot && (
