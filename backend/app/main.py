@@ -8,7 +8,7 @@ from sqlalchemy import text
 from app.core.database import engine, SessionLocal, DATABASE_URL
 from app.core.config import BOT_TOKEN
 from app.models import models
-from app.api.endpoints import masters, bookings, services, admin
+from app.api.endpoints import masters, bookings, services, admin, bot_webhook
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -26,6 +26,7 @@ app.include_router(masters.router, prefix="/api")
 app.include_router(services.router, prefix="/api")
 app.include_router(bookings.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(bot_webhook.router, prefix="/api")
 
 
 def _run_migration(db, sql_sqlite, sql_pg, label):
@@ -133,13 +134,14 @@ def startup():
         db.rollback()
         print(f"⚠️ Миграция customer_phone: {e}")
 
-    # Авто-настройка Menu Button
+    # Авто-настройка Menu Button + webhook
     try:
         base_url = str(os.getenv("BASE_URL", ""))
         if base_url:
             _auto_setup_menu_button(base_url)
+            bot_webhook.register_webhook(base_url)
     except Exception as e:
-        print(f"⚠️ Ошибка авто-настройки Menu Button: {e}")
+        print(f"⚠️ Ошибка авто-настройки Menu Button / webhook: {e}")
 
     # Сидирование данных
     if db.query(models.Master).count() == 0:

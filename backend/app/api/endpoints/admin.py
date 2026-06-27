@@ -135,7 +135,10 @@ def create_invite_link(request: Request, db: Session = Depends(get_db)):
     direct_url = f"{base_url}?invite={token}"
     telegram_url = None
     if bot_username:
-        telegram_url = f"https://t.me/{bot_username}/app?startapp=invite_{token}"
+        # Используем /start вместо /app — надёжнее:
+        # пользователь пишет боту, бот присылает кнопку web_app,
+        # которая гарантированно открывает Mini App внутри Telegram
+        telegram_url = f"https://t.me/{bot_username}?start=invite_{token}"
 
     return schemas.InviteLinkResponse(
         telegram_url=telegram_url,
