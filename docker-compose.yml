@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: barber_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: barber_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: barber_backend
+    restart: always
+    # Для разработки: том для hot-reload бэкенда (фронтенд через Vite dev server отдельно)
+    volumes:
+      - ./backend:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/barber_db
+      - BOT_TOKEN=8962361890:AAFU2LwhoUq5FPct2zHDS9rv0-ASZa8my_E
+      - ADMIN_PASSWORD=admin123
+
+volumes:
+  postgres_data:
