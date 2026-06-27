@@ -71,21 +71,32 @@ echo "🔗 Starting Cloudflare Tunnel..."
 nohup cloudflared tunnel --url http://localhost:8000 > "$LOG_DIR/cloudflared.log" 2>&1 &
 TUNNEL_PID=$!
 echo "   PID: $TUNNEL_PID"
-sleep 4
-
-# Парсим URL туннеля из лога
-TUNNEL_URL=$(grep -oP 'https://[a-z-]+\.trycloudflare\.com' "$LOG_DIR/cloudflared.log" | head -1)
+# Ждём туннель и парсим URL
+sleep 6
+TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.[a-zA-Z0-9-]+\.trycloudflare\.com' "$LOG_DIR/cloudflared.log" | head -1)
+# fallback — если через короткое тире не нашли
+if [ -z "$TUNNEL_URL" ]; then
+  TUNNEL_URL=$(grep -oE 'https://[^ ]+\.trycloudflare\.com' "$LOG_DIR/cloudflared.log" | head -1)
+fi
 
 echo ""
 echo "=============================================="
 echo "  ✅ Deploy Complete!"
 echo "=============================================="
 echo ""
-echo "  📱 App URL:          $TUNNEL_URL"
-echo "  🔧 Admin panel:      ${TUNNEL_URL}#admin"
+if [ -n "$TUNNEL_URL" ]; then
+  echo "  📱 App URL:          $TUNNEL_URL"
+  echo "  🔧 Admin panel:      ${TUNNEL_URL}#admin"
+else
+  echo "  📱 App URL:          (смотрите в логе ниже)"
+  echo "  🔧 Admin panel:      #admin"
+fi
 echo "  📋 Logs:"
-echo "     Backend:          tail -f $LOG_DIR/barber-api.log"
-echo "     Tunnel:           tail -f $LOG_DIR/cloudflared.log"
-echo ""
-echo "  📌 Stop all:         pkill -f uvicorn; pkill -f cloudflared"
+echo "     Backend:  tail -f $LOG_DIR/barber-api.log"
+echo "     Tunnel:   tail -f $LOG_DIR/cloudflared.log"
+echo "  📌 Stop:     pkill -f uvicorn; pkill -f cloudflared"
 echo "=============================================="
+echo ""
+echo "ℹ️  Tunnel URL from log:"
+grep -oE 'https://[^ ]+\.trycloudflare\.com' "$LOG_DIR/cloudflared.log" | head -1
+echo ""
