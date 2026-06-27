@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models import models
 from app.schemas import schemas
-from app.services.telegram import send_booking_notification
+from app.services.telegram import send_booking_notification, send_reminder
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
@@ -118,6 +118,7 @@ def create_booking(booking: schemas.BookingCreate, db: Session = Depends(get_db)
         customer_name=booking.customer_name,
         customer_phone=booking.customer_phone,
         customer_tg_username=booking.customer_tg_username,
+        customer_tg_id=booking.customer_tg_id,
         booking_time=booking.booking_time,
     )
     db.add(db_booking)
@@ -136,6 +137,18 @@ def create_booking(booking: schemas.BookingCreate, db: Session = Depends(get_db)
             chat_id=master.telegram_id,
             client_name=booking.customer_name,
             client_username=booking.customer_tg_username,
+            master_name=master.name,
+            service_title=service.title,
+            service_price=service.price,
+            booking_time=booking.booking_time,
+        )
+
+    # Отправляем подтверждение клиенту
+    if booking.customer_tg_id and booking.customer_tg_id > 0:
+        from app.services.telegram import send_client_confirmation
+        send_client_confirmation(
+            chat_id=booking.customer_tg_id,
+            client_name=booking.customer_name,
             master_name=master.name,
             service_title=service.title,
             service_price=service.price,
@@ -164,3 +177,76 @@ def delete_booking(booking_id: int, db: Session = Depends(get_db)):
     db.delete(booking)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.post("/check-reminders")
+def check_reminders(db: Session = Depends(get_db)):
+    """Проверить и отправить напоминания о записях.
+    Вызывать по крону: каждый час.
+    """
+    now = datetime.utcnow()
+    sent = {"day_before": 0, "hour_before": 0}
+
+    # Ищем неподтверждённые записи на завтра (за день)
+    tomorrow = now + timedelta(days=1)
+    tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_end = tomorrow_start + timedelta(days=1)
+
+    day_before_bookings = db.query(models.Booking).options(
+        joinedload(models.Booking.master),
+        joinedload(models.Booking.service),
+    ).filter(
+        models.Booking.customer_tg_id.isnot(None),
+        models.Booking.customer_tg_id > 0,
+        models.Booking.notified_day_before == False,
+        models.Booking.booking_time >= tomorrow_start,
+        models.Booking.booking_time < tomorrow_end,
+    ).all()
+
+    for b in day_before_bookings:
+        send_reminder(
+            chat_id=b.customer_tg_id,
+            client_name=b.customer_name,
+            master_name=b.master.name,
+            service_title=b.service.title,
+            booking_time=b.booking_time,
+            hours_before=24,
+        )
+        b.notified_day_before = True
+        sent["day_before"] += 1
+
+    # Ищем записи на сегодня, где до записи осталось ~1 час
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    in_one_hour = now + timedelta(hours=1)
+
+    hour_before_bookings = db.query(models.Booking).options(
+        joinedload(models.Booking.master),
+        joinedload(models.Booking.service),
+    ).filter(
+        models.Booking.customer_tg_id.isnot(None),
+        models.Booking.customer_tg_id > 0,
+        models.Booking.notified_hour_before == False,
+        models.Booking.booking_time >= today_start,
+        models.Booking.booking_time < today_end,
+        models.Booking.booking_time <= in_one_hour,
+    ).all()
+
+    for b in hour_before_bookings:
+        send_reminder(
+            chat_id=b.customer_tg_id,
+            client_name=b.customer_name,
+            master_name=b.master.name,
+            service_title=b.service.title,
+            booking_time=b.booking_time,
+            hours_before=1,
+        )
+        b.notified_hour_before = True
+        sent["hour_before"] += 1
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "reminders_sent": sent,
+    }

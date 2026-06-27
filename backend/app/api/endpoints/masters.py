@@ -86,7 +86,8 @@ def register_by_invite(payload: schemas.RegisterByInvite, db: Session = Depends(
         role="Барбер",
         photo_url=photo_url,
         telegram_id=payload.telegram_id if payload.telegram_id and payload.telegram_id > 0 else None,
-        bio=f"Telegram: @{bot_username}" if bot_username else None,
+        tg_username=bot_username,
+        bio=bot_username,
     )
     db.add(db_master)
     db.commit()

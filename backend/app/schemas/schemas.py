@@ -10,6 +10,7 @@ class MasterBase(BaseModel):
     photo_url: Optional[str] = None
     bio: Optional[str] = None
     telegram_id: Optional[int] = None
+    tg_username: Optional[str] = None
 
 
 class MasterCreate(MasterBase):
@@ -22,6 +23,7 @@ class MasterUpdate(BaseModel):
     photo_url: Optional[str] = None
     bio: Optional[str] = None
     telegram_id: Optional[int] = None
+    tg_username: Optional[str] = None
 
 
 class MasterResponse(MasterBase):
@@ -64,6 +66,7 @@ class BookingBase(BaseModel):
     customer_name: str
     customer_phone: Optional[str] = None
     customer_tg_username: Optional[str] = None
+    customer_tg_id: Optional[int] = None
     booking_time: datetime
 
 
@@ -74,6 +77,8 @@ class BookingCreate(BookingBase):
 class BookingResponse(BookingBase):
     id: int
     is_confirmed: bool
+    notified_day_before: bool = False
+    notified_hour_before: bool = False
     master: Optional[MasterResponse] = None
     service: Optional[ServiceResponse] = None
 

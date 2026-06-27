@@ -1,9 +1,12 @@
 import os
+import json
+import urllib.request
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from app.core.database import engine, SessionLocal, DATABASE_URL
+from app.core.config import BOT_TOKEN
 from app.models import models
 from app.api.endpoints import masters, bookings, services, admin
 
@@ -25,33 +28,106 @@ app.include_router(bookings.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 
 
+def _run_migration(db, sql_sqlite, sql_pg, label):
+    """Выполнить миграцию, игнорируя ошибки если колонка уже есть."""
+    try:
+        if DATABASE_URL.startswith("sqlite"):
+            db.execute(text(sql_sqlite))
+        else:
+            db.execute(text(sql_pg))
+        db.commit()
+        print(f"✅ Миграция: {label}")
+    except Exception as e:
+        db.rollback()
+        print(f"⚠️ Миграция {label}: {e} (возможно уже есть)")
+
+
+def _auto_setup_menu_button(base_url: str):
+    """Автоматически настроить Menu Button бота на текущий URL."""
+    if not BOT_TOKEN:
+        print("⚠️ BOT_TOKEN не задан — Menu Button не настроен")
+        return
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setChatMenuButton"
+    payload = json.dumps({
+        "menu_button": {
+            "type": "web_app",
+            "text": "💈 Барбершоп",
+            "web_app": {"url": base_url},
+        }
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print(f"✅ Menu Button настроен: {base_url}")
+    except Exception as e:
+        print(f"⚠️ Ошибка настройки Menu Button: {e}")
+
+
 @app.on_event("startup")
 def startup():
     """Миграции + начальные данные"""
     db = SessionLocal()
 
     # Миграция: добавляем колонку telegram_id, если её нет
-    try:
-        if DATABASE_URL.startswith("sqlite"):
-            db.execute(text("ALTER TABLE masters ADD COLUMN telegram_id INTEGER"))
-        else:
-            db.execute(text("ALTER TABLE masters ADD COLUMN IF NOT EXISTS telegram_id INTEGER"))
-        db.commit()
-        print("✅ Миграция: колонка telegram_id добавлена")
-    except Exception as e:
-        db.rollback()
-        print(f"⚠️ Миграция telegram_id: {e} (возможно колонка уже есть)")
+    _run_migration(
+        db,
+        "ALTER TABLE masters ADD COLUMN telegram_id INTEGER",
+        "ALTER TABLE masters ADD COLUMN IF NOT EXISTS telegram_id INTEGER",
+        "telegram_id на masters",
+    )
 
-    # Миграция: делаем customer_phone опциональным
+    # Миграция: tg_username на masters
+    _run_migration(
+        db,
+        "ALTER TABLE masters ADD COLUMN tg_username VARCHAR",
+        "ALTER TABLE masters ADD COLUMN IF NOT EXISTS tg_username VARCHAR",
+        "tg_username на masters",
+    )
+
+    # Миграция: customer_tg_id на bookings
+    _run_migration(
+        db,
+        "ALTER TABLE bookings ADD COLUMN customer_tg_id INTEGER",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_tg_id INTEGER",
+        "customer_tg_id на bookings",
+    )
+
+    # Миграция: notifcation флаги на bookings
+    _run_migration(
+        db,
+        "ALTER TABLE bookings ADD COLUMN notified_day_before BOOLEAN DEFAULT 0",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notified_day_before BOOLEAN DEFAULT FALSE",
+        "notified_day_before на bookings",
+    )
+    _run_migration(
+        db,
+        "ALTER TABLE bookings ADD COLUMN notified_hour_before BOOLEAN DEFAULT 0",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notified_hour_before BOOLEAN DEFAULT FALSE",
+        "notified_hour_before на bookings",
+    )
+
+    # Миграция: customer_phone nullable
     try:
         if not DATABASE_URL.startswith("sqlite"):
             db.execute(text("ALTER TABLE bookings ALTER COLUMN customer_phone DROP NOT NULL"))
-        # SQLite не поддерживает DROP NOT NULL, но у нас nullable=True в модели — SQLite его игнорирует
         db.commit()
         print("✅ Миграция: customer_phone теперь опциональный")
     except Exception as e:
         db.rollback()
         print(f"⚠️ Миграция customer_phone: {e}")
+
+    # Авто-настройка Menu Button
+    try:
+        base_url = str(os.getenv("BASE_URL", ""))
+        if base_url:
+            _auto_setup_menu_button(base_url)
+    except Exception as e:
+        print(f"⚠️ Ошибка авто-настройки Menu Button: {e}")
 
     # Сидирование данных
     if db.query(models.Master).count() == 0:

@@ -13,6 +13,7 @@ class Master(Base):
     photo_url = Column(String, nullable=True)
     bio = Column(String, nullable=True)
     telegram_id = Column(Integer, nullable=True)
+    tg_username = Column(String, nullable=True)
 
     bookings = relationship("Booking", back_populates="master")
     services = relationship("MasterService", back_populates="master", cascade="all, delete-orphan")
@@ -40,8 +41,11 @@ class Booking(Base):
     customer_name = Column(String, nullable=False)
     customer_phone = Column(String, nullable=True)
     customer_tg_username = Column(String, nullable=True)
+    customer_tg_id = Column(Integer, nullable=True)
     booking_time = Column(DateTime, nullable=False)
     is_confirmed = Column(Boolean, default=False)
+    notified_day_before = Column(Boolean, default=False)
+    notified_hour_before = Column(Boolean, default=False)
 
     master = relationship("Master", back_populates="bookings")
     service = relationship("Service", back_populates="bookings")

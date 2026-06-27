@@ -79,6 +79,21 @@ if [ -z "$TUNNEL_URL" ]; then
   TUNNEL_URL=$(grep -oE 'https://[^ ]+\.trycloudflare\.com' "$LOG_DIR/cloudflared.log" | head -1)
 fi
 
+# 7. Авто-настройка Menu Button в Telegram боте (если нашли URL)
+if [ -n "$TUNNEL_URL" ]; then
+  echo "🔄 Setting BASE_URL for auto Menu Button config..."
+  # Перезапускаем backend с BASE_URL, чтобы он сам настроил Menu Button
+  # (или можно напрямую через API, но проще через рестарт)
+  pkill -f "uvicorn app.main:app" 2>/dev/null || true
+  sleep 1
+  cd backend
+  BASE_URL="$TUNNEL_URL" nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/barber-api.log" 2>&1 &
+  BACKEND_PID=$!
+  cd "$PROJECT_DIR"
+  sleep 2
+  echo "✅ Backend restarted with Menu Button targeting: $TUNNEL_URL"
+fi
+
 echo ""
 echo "=============================================="
 echo "  ✅ Deploy Complete!"
@@ -87,6 +102,10 @@ echo ""
 if [ -n "$TUNNEL_URL" ]; then
   echo "  📱 App URL:          $TUNNEL_URL"
   echo "  🔧 Admin panel:      ${TUNNEL_URL}#admin"
+  echo "  🤖 Menu Button:      настроен автоматически"
+  echo ""
+  echo "  📋 Cron для напоминаний (добавьте в crontab -e):"
+  echo "     0 * * * * curl -s ${TUNNEL_URL}/api/bookings/check-reminders > /dev/null 2>&1"
 else
   echo "  📱 App URL:          (смотрите в логе ниже)"
   echo "  🔧 Admin panel:      #admin"

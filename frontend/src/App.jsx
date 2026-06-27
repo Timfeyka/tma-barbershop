@@ -222,6 +222,7 @@ function App() {
 
     const firstName = tgUser?.first_name || tgUser?.username || 'Клиент'
     const username = tgUser?.username || null
+    const tgId = tgUser?.id || null
 
     try {
       await post('/bookings/', {
@@ -230,6 +231,7 @@ function App() {
         customer_name: firstName,
         customer_phone: null,
         customer_tg_username: username,
+        customer_tg_id: tgId,
         booking_time: dt.toISOString(),
       })
       setStep('confirmation')
@@ -532,10 +534,11 @@ function App() {
         ) : (
           <div style={{ padding: 24 }}>
             <p style={{ color: 'var(--text-dim)', marginBottom: 16, textAlign: 'center' }}>
-              Введите свои данные для регистрации
+              Вы получили приглашение стать мастером в барбершопе.<br />
+              Заполните данные ниже.
             </p>
             <div className="form-group">
-              <label>Ваше имя</label>
+              <label>Имя (будет отображаться клиентам)</label>
               <input
                 className="form-input"
                 placeholder="Иван"
@@ -544,13 +547,16 @@ function App() {
               />
             </div>
             <div className="form-group">
-              <label>Telegram username (необязательно)</label>
+              <label>Telegram @username</label>
               <input
                 className="form-input"
                 placeholder="@username"
                 value={manualTgUsername}
                 onChange={e => setManualTgUsername(e.target.value.replace('@', ''))}
               />
+              <small style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 4, display: 'block' }}>
+                Будет отображаться в админке. Если не укажете — не сможете получать уведомления в Telegram.
+              </small>
             </div>
             <button
               className="btn btn-primary"
@@ -769,7 +775,14 @@ function App() {
                     <div key={m.id} className="admin-item">
                       <div className="admin-item-info">
                         <h4>{m.name} (ID: {m.id})</h4>
-                        <span>{m.role}{m.telegram_id ? ' · TG ID: ' + m.telegram_id : ' · TG не привязан'}</span>
+                        <span>{m.role}</span>
+                        {m.telegram_id ? (
+                          <><br /><small style={{ color: 'var(--success)' }}>TG ID: {m.telegram_id}</small></>
+                        ) : m.tg_username ? (
+                          <><br /><small style={{ color: 'var(--accent)' }}>TG: @{m.tg_username}</small></>
+                        ) : (
+                          <><br /><small style={{ color: 'var(--text-dim)' }}>TG не привязан</small></>
+                        )}
                         <br />
                         <small style={{ color: 'var(--accent)' }}>
                           🔗 {getMasterLink(m.id)}
