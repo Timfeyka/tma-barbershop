@@ -15,6 +15,9 @@ from alembic import command
 
 app = FastAPI(title="TMA Barbershop API")
 
+# Fallback: создаём таблицы если БД пустая (на случай ошибки Alembic)
+models.Base.metadata.create_all(bind=engine)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,7 +36,7 @@ app.include_router(bot_webhook.router, prefix="/api")
 def _run_alembic_migrations():
     """Запустить миграции Alembic при старте."""
     try:
-        alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"))
+        alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
         command.upgrade(alembic_cfg, "head")
         print("✅ Alembic: все миграции применены")
     except Exception as e:
