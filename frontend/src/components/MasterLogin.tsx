@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { post } from '../api'
+import { get, post } from '../api'
 import type { Master, MasterRegisterResponse, TelegramUser } from '../types'
 import Toast from './Toast'
 
