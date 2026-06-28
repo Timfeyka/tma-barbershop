@@ -1,11 +1,13 @@
 import uuid
 import os
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from app.core.database import get_db
 from app.models import models
 from app.schemas import schemas
+from app.services.telegram import _send_telegram_message
 
 router = APIRouter(prefix="/masters", tags=["Masters"])
 
@@ -181,21 +183,25 @@ def get_date_overrides(master_id: int, year: int = None, month: int = None, db: 
 
 @router.put("/{master_id}/date-overrides", response_model=schemas.DateOverrideResponse)
 def upsert_date_override(master_id: int, payload: schemas.DateOverrideCreate, db: Session = Depends(get_db)):
-    """Создать или обновить особую дату мастера."""
+    """Создать или обновить особую дату мастера.
+    Если статус рабочего дня изменился — уведомляет всех клиентов с записями на этот день."""
     master = db.query(models.Master).filter(models.Master.id == master_id).first()
     if not master:
         raise HTTPException(status_code=404, detail="Мастер не найден")
 
+    # Запоминаем предыдущее состояние (если было)
+    old_is_working = None
     existing = db.query(models.MasterDateOverride).filter(
         models.MasterDateOverride.master_id == master_id,
         models.MasterDateOverride.date == payload.date,
     ).first()
-
     if existing:
+        old_is_working = existing.is_working
         existing.is_working = payload.is_working
         existing.max_bookings = payload.max_bookings
         existing.note = payload.note
     else:
+        old_is_working = True  # по умолчанию день рабочий
         existing = models.MasterDateOverride(
             master_id=master_id,
             date=payload.date,
@@ -207,21 +213,93 @@ def upsert_date_override(master_id: int, payload: schemas.DateOverrideCreate, db
 
     db.commit()
     db.refresh(existing)
+
+    # Если статус изменился — уведомляем клиентов с записями на этот день
+    is_new = (old_is_working is not None and old_is_working != payload.is_working)
+    if is_new:
+        _notify_booked_clients(master_id, payload.date, payload.is_working, db)
+
     return existing
+
+
+def _notify_booked_clients(master_id: int, date: str, now_working: bool, db: Session):
+    """Уведомить клиентов, записанных к мастеру на указанную дату, об изменении статуса."""
+    # Ищем все НЕ отменённые записи на этот день
+    date_start = datetime.strptime(date, "%Y-%m-%d")
+    date_end = date_start.replace(hour=23, minute=59)
+
+    bookings = db.query(models.Booking).options(
+        joinedload(models.Booking.service)
+    ).filter(
+        models.Booking.master_id == master_id,
+        models.Booking.is_cancelled == False,
+        models.Booking.booking_time >= date_start,
+        models.Booking.booking_time < date_end,
+    ).all()
+
+    if not bookings:
+        return
+
+    if now_working:
+        # День стал рабочим — уведомляем что запись в силе
+        text_prefix = (
+            f"✅ <b>Хорошие новости!</b>\n\n"
+            f"Мастер снова работает {date}.\n"
+            f"Ваша запись остаётся в силе!"
+        )
+        for b in bookings:
+            if b.customer_tg_id and b.customer_tg_id > 0:
+                time_str = b.booking_time.strftime("%H:%M")
+                service_title = b.service.title if b.service else "—"
+                full_text = (
+                    f"{text_prefix}\n\n"
+                    f"💇 <b>Время:</b> {time_str}\n"
+                    f"📋 <b>Услуга:</b> {service_title}\n\n"
+                    f"<i>Если планы изменились — свяжитесь с мастером.</i>"
+                )
+                _send_telegram_message(b.customer_tg_id, full_text)
+    else:
+        # День стал нерабочим — уведомляем об отмене
+        text_prefix = (
+            f"❌ <b>Запись отменена</b>\n\n"
+            f"Мастер не работает {date}.\n"
+            f"Ваша запись, к сожалению, не состоится."
+        )
+        for b in bookings:
+            if b.customer_tg_id and b.customer_tg_id > 0:
+                time_str = b.booking_time.strftime("%H:%M")
+                service_title = b.service.title if b.service else "—"
+                full_text = (
+                    f"{text_prefix}\n\n"
+                    f"💇 <b>Время:</b> {time_str}\n"
+                    f"📋 <b>Услуга:</b> {service_title}\n\n"
+                    f"<i>Приносим извинения за неудобства. Вы можете записаться на другой день.</i>"
+                )
+                _send_telegram_message(b.customer_tg_id, full_text)
 
 
 @router.delete("/{master_id}/date-overrides/{override_id}")
 def delete_date_override(master_id: int, override_id: int, db: Session = Depends(get_db)):
-    """Удалить особую дату."""
+    """Удалить особую дату (возвращает день к расписанию по умолчанию).
+    Если удаляемый оверрайд был нерабочим — уведомляет клиентов что день снова рабочий."""
     override = db.query(models.MasterDateOverride).filter(
         models.MasterDateOverride.id == override_id,
         models.MasterDateOverride.master_id == master_id,
     ).first()
     if not override:
         raise HTTPException(status_code=404, detail="Запись не найдена")
+
+    was_non_working = not override.is_working and override.date >= datetime.now().strftime("%Y-%m-%d")
+    date_str = override.date
+
     db.delete(override)
     db.commit()
-    return {"status": "deleted"}
+
+    # Если удаляем not-working → день возвращается к обычному расписанию
+    if was_non_working:
+        _notify_booked_clients(master_id, date_str, now_working=True, db=db)
+
+    return {"status": "deleted", "message": "День возвращён к обычному расписанию"}
 
 
 # --- Привязка Telegram к мастеру ---
