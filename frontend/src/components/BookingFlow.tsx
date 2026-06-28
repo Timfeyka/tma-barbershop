@@ -51,8 +51,9 @@ export default function BookingFlow({
   }
 
   const loadDayStatus = async (masterId: number, year: number, month: number) => {
+    // month — JS 0-indexed (0=янв), бэкенду нужен 1-indexed (1=янв)
     const data = await get<{ days: { date: string; is_working: boolean; has_slots: boolean }[] }>(
-      `/bookings/available-days/${masterId}/${year}/${month}`
+      `/bookings/available-days/${masterId}/${year}/${month + 1}`
     ).catch(() => null)
     if (data?.days) {
       const map: Record<string, { is_working: boolean; has_slots: boolean }> = {}
