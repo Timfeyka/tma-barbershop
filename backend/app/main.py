@@ -126,9 +126,18 @@ def startup():
     if base_url:
         _auto_setup_menu_button(base_url)
         # Webhook регистрируем в фоне — не блокируем запуск API
-        # Туннель может быть ещё не готов, retry сделает register_webhook сам
+        # Туннель может быть ещё не готов — ждём пока URL начнёт отвечать
         def _register_webhook_delayed():
-            time.sleep(3)  # даём туннелю время на запуск
+            hook_url = base_url.rstrip("/") + "/api/bot/webhook"
+            # Ждём пока туннель станет отвечать (до 30 сек)
+            for _ in range(10):
+                time.sleep(3)
+                try:
+                    with urllib.request.urlopen(hook_url, timeout=5) as resp:
+                        if resp.status == 200:
+                            break
+                except Exception:
+                    continue
             bot_webhook.register_webhook(base_url)
         t = threading.Thread(target=_register_webhook_delayed, daemon=True)
         t.start()

@@ -203,6 +203,12 @@ def register_webhook(webhook_url: str, max_retries: int = 5) -> bool:
                     desc = data.get("description", str(data))
                     print(f"⚠️ Webhook обновился: {desc}")
                     return True if "already" in desc.lower() else False
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            print(f"⚠️ Попытка {attempt + 1}/{max_retries}: HTTP {e.code} — {body[:200]}")
+            if attempt < max_retries - 1:
+                print("   ⏳ Жду 3 секунды...")
+                time.sleep(3)
         except Exception as e:
             print(f"⚠️ Попытка {attempt + 1}/{max_retries}: {e}")
             if attempt < max_retries - 1:
