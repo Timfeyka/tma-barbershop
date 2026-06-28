@@ -33,6 +33,14 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(bot_webhook.router, prefix="/api")
 
 
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
+
+
+# ——— Раздача статики ———
+
+
 def _run_alembic_migrations():
     """Запустить миграции Alembic при старте."""
     try:
@@ -155,8 +163,3 @@ if os.path.exists(FRONTEND_DIST):
     print(f"✅ Статика фронтенда подключена: {FRONTEND_DIST}")
 else:
     print(f"ℹ️ Статика фронтенда не найдена: {FRONTEND_DIST}")
-
-
-@app.get("/api/health")
-async def health():
-    return {"status": "ok"}
