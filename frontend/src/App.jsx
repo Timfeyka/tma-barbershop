@@ -1390,18 +1390,19 @@ function App() {
             </p>
 
             {/* Форма добавления */}
-            <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <div className="date-override-card">
               <div className="form-group" style={{ marginBottom: 12 }}>
                 <label>Дата</label>
                 <input
                   className="form-input"
+                  style={{ height: 48 }}
                   type="date"
                   value={dateOverrideForm.date}
                   onChange={e => setDateOverrideForm({ ...dateOverrideForm, date: e.target.value })}
                 />
               </div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, cursor: 'pointer' }}>
+                <label className="checkbox-label">
                   <input
                     type="checkbox"
                     checked={dateOverrideForm.is_working}
@@ -1412,12 +1413,14 @@ function App() {
               </div>
               {dateOverrideForm.is_working && (
                 <div className="form-group" style={{ marginBottom: 12 }}>
-                  <label>Макс. записей (оставьте 999 для безлимита)</label>
+                  <label>Макс. записей</label>
                   <input
                     className="form-input"
+                    style={{ height: 48 }}
                     type="number"
                     min="1"
                     max="999"
+                    placeholder="999 — без лимита"
                     value={dateOverrideForm.max_bookings}
                     onChange={e => setDateOverrideForm({ ...dateOverrideForm, max_bookings: parseInt(e.target.value) || 999 })}
                   />
@@ -1427,6 +1430,7 @@ function App() {
                 <label>Примечание (необязательно)</label>
                 <input
                   className="form-input"
+                  style={{ height: 48 }}
                   placeholder="Например: только 1 запись"
                   value={dateOverrideForm.note}
                   onChange={e => setDateOverrideForm({ ...dateOverrideForm, note: e.target.value })}

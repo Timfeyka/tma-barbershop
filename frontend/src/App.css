@@ -12,6 +12,10 @@
   --radius: 16px;
 }
 
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 .app {
   max-width: 480px;
   margin: 0 auto;
@@ -802,6 +806,24 @@ code {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* ===== Особые даты (форма) ===== */
+.date-override-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 0;
 }
 
 /* ===== Фото мастера (загрузка) ===== */
