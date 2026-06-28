@@ -1,0 +1,16 @@
+[Unit]
+Description=Cloudflare Tunnel for TMA Barbershop (instance %i)
+After=network.target
+Wants=barbershop-api.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://localhost:8000
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

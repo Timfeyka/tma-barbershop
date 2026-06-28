@@ -4,13 +4,14 @@ import urllib.request
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
 from app.core.database import engine, SessionLocal, DATABASE_URL
 from app.core.config import BOT_TOKEN
 from app.models import models
 from app.api.endpoints import masters, bookings, services, admin, bot_webhook
 
-models.Base.metadata.create_all(bind=engine)
+# Alembic для версионирования схемы БД
+from alembic.config import Config
+from alembic import command
 
 app = FastAPI(title="TMA Barbershop API")
 
@@ -29,18 +30,14 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(bot_webhook.router, prefix="/api")
 
 
-def _run_migration(db, sql_sqlite, sql_pg, label):
-    """Выполнить миграцию, игнорируя ошибки если колонка уже есть."""
+def _run_alembic_migrations():
+    """Запустить миграции Alembic при старте."""
     try:
-        if DATABASE_URL.startswith("sqlite"):
-            db.execute(text(sql_sqlite))
-        else:
-            db.execute(text(sql_pg))
-        db.commit()
-        print(f"✅ Миграция: {label}")
+        alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"))
+        command.upgrade(alembic_cfg, "head")
+        print("✅ Alembic: все миграции применены")
     except Exception as e:
-        db.rollback()
-        print(f"⚠️ Миграция {label}: {e} (возможно уже есть)")
+        print(f"⚠️ Ошибка при запуске Alembic: {e}")
 
 
 def _auto_setup_menu_button(base_url: str):
@@ -108,65 +105,8 @@ def startup():
     """Миграции + начальные данные"""
     db = SessionLocal()
 
-    # Миграция: добавляем колонку telegram_id, если её нет
-    _run_migration(
-        db,
-        "ALTER TABLE masters ADD COLUMN telegram_id INTEGER",
-        "ALTER TABLE masters ADD COLUMN IF NOT EXISTS telegram_id INTEGER",
-        "telegram_id на masters",
-    )
-
-    # Миграция: tg_username на masters
-    _run_migration(
-        db,
-        "ALTER TABLE masters ADD COLUMN tg_username VARCHAR",
-        "ALTER TABLE masters ADD COLUMN IF NOT EXISTS tg_username VARCHAR",
-        "tg_username на masters",
-    )
-
-    # Миграция: customer_tg_id на bookings
-    _run_migration(
-        db,
-        "ALTER TABLE bookings ADD COLUMN customer_tg_id INTEGER",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_tg_id INTEGER",
-        "customer_tg_id на bookings",
-    )
-
-    # Миграция: notifcation флаги на bookings
-    _run_migration(
-        db,
-        "ALTER TABLE bookings ADD COLUMN notified_day_before INTEGER DEFAULT 0",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notified_day_before BOOLEAN DEFAULT FALSE",
-        "notified_day_before на bookings",
-    )
-    _run_migration(
-        db,
-        "ALTER TABLE bookings ADD COLUMN notified_hour_before INTEGER DEFAULT 0",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notified_hour_before BOOLEAN DEFAULT FALSE",
-        "notified_hour_before на bookings",
-    )
-    _run_migration(
-        db,
-        "ALTER TABLE bookings ADD COLUMN is_cancelled INTEGER DEFAULT 0",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_cancelled BOOLEAN DEFAULT FALSE",
-        "is_cancelled на bookings",
-    )
-    _run_migration(
-        db,
-        "ALTER TABLE master_schedules ADD COLUMN slot_interval_minutes INTEGER DEFAULT 60",
-        "ALTER TABLE master_schedules ADD COLUMN IF NOT EXISTS slot_interval_minutes INTEGER DEFAULT 60",
-        "slot_interval_minutes на master_schedules",
-    )
-
-    # Миграция: customer_phone nullable
-    try:
-        if not DATABASE_URL.startswith("sqlite"):
-            db.execute(text("ALTER TABLE bookings ALTER COLUMN customer_phone DROP NOT NULL"))
-        db.commit()
-        print("✅ Миграция: customer_phone теперь опциональный")
-    except Exception as e:
-        db.rollback()
-        print(f"⚠️ Миграция customer_phone: {e}")
+    # Миграции через Alembic (версионированная схема БД)
+    _run_alembic_migrations()
 
     # Авто-настройка Menu Button + webhook
     try:

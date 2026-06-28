@@ -1,0 +1,19 @@
+[Unit]
+Description=TMA Barbershop API (FastAPI + uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tma-barbershop/backend
+EnvironmentFile=-/opt/tma-barbershop/backend/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/tma-barbershop/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StartLimitBurst=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

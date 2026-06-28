@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models import models
 from app.schemas import schemas
-from app.services.telegram import send_booking_notification, send_reminder
+from app.services.telegram import send_booking_notification, send_client_confirmation, send_reminder, _send_telegram_message
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
@@ -115,7 +115,7 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
 
 
 @router.post("/", response_model=schemas.BookingResponse)
-def create_booking(booking: schemas.BookingCreate, db: Session = Depends(get_db)):
+def create_booking(booking: schemas.BookingCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # Проверяем существование мастера
     master = db.query(models.Master).filter(models.Master.id == booking.master_id).first()
     if not master:
@@ -153,9 +153,10 @@ def create_booking(booking: schemas.BookingCreate, db: Session = Depends(get_db)
         joinedload(models.Booking.service)
     ).filter(models.Booking.id == db_booking.id).first()
 
-    # Отправляем уведомление мастеру в Telegram
+    # Уведомления в фоне — клиент не ждёт ответа Telegram API
     if master.telegram_id:
-        send_booking_notification(
+        background_tasks.add_task(
+            send_booking_notification,
             chat_id=master.telegram_id,
             client_name=booking.customer_name,
             client_username=booking.customer_tg_username,
@@ -165,10 +166,9 @@ def create_booking(booking: schemas.BookingCreate, db: Session = Depends(get_db)
             booking_time=booking.booking_time,
         )
 
-    # Отправляем подтверждение клиенту
     if booking.customer_tg_id and booking.customer_tg_id > 0:
-        from app.services.telegram import send_client_confirmation
-        send_client_confirmation(
+        background_tasks.add_task(
+            send_client_confirmation,
             chat_id=booking.customer_tg_id,
             client_name=booking.customer_name,
             master_name=master.name,
@@ -202,7 +202,7 @@ def delete_booking(booking_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{booking_id}/cancel")
-def cancel_booking(booking_id: int, db: Session = Depends(get_db)):
+def cancel_booking(booking_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Мастер отменяет запись (помечаем как отменённую, не удаляем)"""
     booking = db.query(models.Booking).options(
         joinedload(models.Booking.master),
@@ -216,9 +216,8 @@ def cancel_booking(booking_id: int, db: Session = Depends(get_db)):
     booking.is_cancelled = True
     db.commit()
 
-    # Уведомляем клиента об отмене
+    # Уведомляем клиента об отмене (в фоне)
     if booking.customer_tg_id and booking.customer_tg_id > 0:
-        from app.services.telegram import _send_telegram_message
         time_str = booking.booking_time.strftime("%d.%m.%Y в %H:%M")
         text = (
             f"❌ <b>Запись отменена</b>\n\n"
@@ -227,7 +226,9 @@ def cancel_booking(booking_id: int, db: Session = Depends(get_db)):
             f"📅 <b>Время:</b> {time_str}\n\n"
             f"Извините за неудобства. Вы можете записаться снова в приложении."
         )
-        _send_telegram_message(booking.customer_tg_id, text)
+        def _send_cancel_msg():
+            _send_telegram_message(booking.customer_tg_id, text)
+        background_tasks.add_task(_send_cancel_msg)
 
     return {"status": "cancelled"}
 
