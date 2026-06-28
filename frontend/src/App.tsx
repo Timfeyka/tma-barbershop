@@ -118,14 +118,13 @@ function App() {
     setShowMasterLogin(false)
   }, [])
 
-  const handleRegistered = useCallback(() => {
-    const auto = getAutoMaster()
-    if (auto) {
+  const handleRegistered = useCallback((master: Master | null) => {
+    if (master) {
       setMasterLoggedIn(true)
-      setMasterViewMaster(auto)
+      setMasterViewMaster(master)
       setInviteToken(null)
     }
-  }, [getAutoMaster])
+  }, [])
 
   if (loading) {
     return (

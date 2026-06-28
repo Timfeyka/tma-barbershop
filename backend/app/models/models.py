@@ -89,7 +89,7 @@ class MasterDateOverride(Base):
     master_id = Column(Integer, ForeignKey("masters.id", ondelete="CASCADE"), nullable=False)
     date = Column(String, nullable=False, index=True)  # YYYY-MM-DD
     is_working = Column(Boolean, default=True)
-    max_bookings = Column(Integer, default=999)  # макс записей в этот день
+    working_intervals = Column(String, nullable=True)  # JSON: [{"start":"10:00","end":"12:00"},{"start":"14:00","end":"20:00"}]
     note = Column(String, nullable=True)
 
     master = relationship("Master", backref="date_overrides")

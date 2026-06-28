@@ -142,7 +142,7 @@ class MasterScheduleUpdate(BaseModel):
 class DateOverrideCreate(BaseModel):
     date: str  # YYYY-MM-DD
     is_working: bool = True
-    max_bookings: int = 999
+    working_intervals: Optional[str] = None  # JSON: [{"start":"10:00","end":"12:00"},{"start":"14:00","end":"20:00"}]
     note: Optional[str] = None
 
 
@@ -151,7 +151,7 @@ class DateOverrideResponse(BaseModel):
     master_id: int
     date: str
     is_working: bool
-    max_bookings: int
+    working_intervals: Optional[str] = None
     note: Optional[str] = None
 
     class Config:
@@ -162,6 +162,7 @@ class DateOverrideResponse(BaseModel):
 class LinkTelegramRequest(BaseModel):
     telegram_id: int
     tg_username: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 # --- Схемы для инвайт-регистрации ---

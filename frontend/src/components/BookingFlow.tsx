@@ -76,7 +76,9 @@ export default function BookingFlow({
     const [h, m] = selectedSlot.split(':')
     const bookingTime = `${selectedDate}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
 
-    const firstName = tgUser?.first_name || tgUser?.username || 'Клиент'
+    const customerName = tgUser
+      ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Клиент'
+      : 'Клиент'
     const username = tgUser?.username || null
     const tgId = tgUser?.id || null
 
@@ -84,7 +86,7 @@ export default function BookingFlow({
       await post('/bookings/', {
         master_id: selectedMaster.id,
         service_id: ('service_id' in selectedService ? selectedService.service_id : selectedService.id),
-        customer_name: firstName,
+        customer_name: customerName,
         customer_phone: null,
         customer_tg_username: username,
         customer_tg_id: tgId,
@@ -133,7 +135,7 @@ export default function BookingFlow({
         <h1>Барбершоп</h1>
         <p className="header-sub">Стильные стрижки в центре города</p>
         {tgUser && (
-          <p className="welcome">Привет, {tgUser.first_name || tgUser.username}!</p>
+          <p className="welcome">Привет, {[tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username}!</p>
         )}
       </header>
 
@@ -210,7 +212,7 @@ export default function BookingFlow({
               servicePrice={servicePrice}
               selectedDate={selectedDate || ''}
               selectedSlot={selectedSlot}
-              customerName={tgUser?.first_name || tgUser?.username || 'Клиент'}
+              customerName={tgUser ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Клиент' : 'Клиент'}
               customerUsername={tgUser?.username}
               onConfirm={handleSubmitBooking}
             />

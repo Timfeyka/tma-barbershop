@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { get, post as apiPost, put, del } from '../api'
-import type { Master, Booking, Service, MasterService, ScheduleItem, DateOverride, DateOverrideForm as DOForm } from '../types'
+import type { Master, Booking, Service, MasterService, ScheduleItem, DateOverride } from '../types'
 import Toast from './Toast'
 import { MONTHS_RU_GEN } from './CalendarWidget'
 
@@ -10,8 +10,13 @@ interface MasterDashboardProps {
   master: Master
   masters: Master[]
   services: Service[]
-  tgUser: { id: number; username?: string; first_name?: string } | null
+  tgUser: { id: number; username?: string; first_name?: string; last_name?: string; photo_url?: string } | null
   onLogout: () => void
+}
+
+interface TimeInterval {
+  start: string
+  end: string
 }
 
 export default function MasterDashboard({ master, masters, services, tgUser, onLogout }: MasterDashboardProps) {
@@ -20,11 +25,11 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
   const [ownServices, setOwnServices] = useState<MasterService[]>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [dateOverrides, setDateOverrides] = useState<DateOverride[]>([])
-  const [dateForm, setDateForm] = useState<DOForm>({ date: '', is_working: true, max_bookings: 999, note: '' })
+  const [dateFormDate, setDateFormDate] = useState('')
+  const [dateFormIsWorking, setDateFormIsWorking] = useState(true)
+  const [dateFormIntervals, setDateFormIntervals] = useState<TimeInterval[]>([{ start: '10:00', end: '20:00' }])
+  const [dateFormNote, setDateFormNote] = useState('')
   const [toast, setToast] = useState<string | null>(null)
-
-  const photoInputRef = useRef<HTMLInputElement>(null)
-  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [imgLoadFailed, setImgLoadFailed] = useState(false)
 
   useEffect(() => { setImgLoadFailed(false) }, [master.photo_url])
@@ -70,31 +75,11 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
       await put(`/masters/${master.id}/link-telegram`, {
         telegram_id: tgUser.id,
         tg_username: tgUser.username || null,
+        photo_url: tgUser.photo_url || null,
       })
       showToast('Telegram привязан! Теперь вы будете получать уведомления.')
     } catch (e: any) {
       showToast('Ошибка: ' + e.message)
-    }
-  }
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploadingPhoto(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch(`/api/masters/${master.id}/photo`, { method: 'PUT', body: formData })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || 'Ошибка загрузки')
-      }
-      showToast('✅ Фото обновлено!')
-    } catch (e: any) {
-      showToast('Ошибка: ' + e.message)
-    } finally {
-      setUploadingPhoto(false)
-      if (photoInputRef.current) photoInputRef.current.value = ''
     }
   }
 
@@ -133,17 +118,38 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
     }
   }
 
+  const handleAddInterval = () => {
+    setDateFormIntervals([...dateFormIntervals, { start: '10:00', end: '20:00' }])
+  }
+
+  const handleRemoveInterval = (idx: number) => {
+    if (dateFormIntervals.length <= 1) return
+    setDateFormIntervals(dateFormIntervals.filter((_, i) => i !== idx))
+  }
+
+  const handleUpdateInterval = (idx: number, field: 'start' | 'end', value: string) => {
+    const next = [...dateFormIntervals]
+    next[idx] = { ...next[idx], [field]: value }
+    setDateFormIntervals(next)
+  }
+
   const handleSaveDateOverride = async () => {
-    if (!dateForm.date) return
+    if (!dateFormDate) return
     try {
+      const intervalsJson = dateFormIsWorking && dateFormIntervals.length > 0
+        ? JSON.stringify(dateFormIntervals)
+        : null
       await put(`/masters/${master.id}/date-overrides`, {
-        date: dateForm.date,
-        is_working: dateForm.is_working,
-        max_bookings: dateForm.is_working ? dateForm.max_bookings : 999,
-        note: dateForm.note || null,
+        date: dateFormDate,
+        is_working: dateFormIsWorking,
+        working_intervals: intervalsJson,
+        note: dateFormNote || null,
       })
       showToast('Дата сохранена!')
-      setDateForm({ date: '', is_working: true, max_bookings: 999, note: '' })
+      setDateFormDate('')
+      setDateFormIsWorking(true)
+      setDateFormIntervals([{ start: '10:00', end: '20:00' }])
+      setDateFormNote('')
       loadDateOverrides()
     } catch (e: any) {
       showToast('Ошибка: ' + e.message)
@@ -190,7 +196,7 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
       )}
 
       <div className="master-photo-section">
-        <div className="master-avatar-wrapper" onClick={() => photoInputRef.current?.click()}>
+        <div className="master-avatar-wrapper" style={{ cursor: 'default' }}>
           {master.photo_url && !imgLoadFailed ? (
             <img src={master.photo_url} alt={master.name} className="master-avatar-img"
               onError={() => setImgLoadFailed(true)} />
@@ -199,11 +205,8 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
               {master.name[0]?.toUpperCase() || '?'}
             </div>
           )}
-          <div className="master-avatar-overlay">{uploadingPhoto ? '⏳' : '📷'}</div>
         </div>
-        <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-          onChange={handlePhotoUpload} />
-        <div className="master-photo-hint">Нажмите на фото для загрузки</div>
+        <div className="master-photo-hint">Фото из профиля Telegram</div>
       </div>
 
       <nav className="nav-tabs" style={{ marginTop: 4 }}>
@@ -348,54 +351,87 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
         <div style={{ marginTop: 8 }}>
           <h3 style={{ marginBottom: 8 }}>Особые даты</h3>
           <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 16 }}>
-            Можно указать, что в определённый день вы не работаете или принимаете ограниченное число клиентов.
+            Укажите, в какие дни вы работаете. Можно задать несколько временных интервалов (например: 10:00–12:00, обед 12:00–14:00, 14:00–20:00).
           </p>
           <div className="date-override-card">
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label>Дата</label>
               <input className="form-input" style={{ height: 48 }} type="date"
-                value={dateForm.date}
-                onChange={e => setDateForm({ ...dateForm, date: e.target.value })} />
+                value={dateFormDate}
+                onChange={e => setDateFormDate(e.target.value)} />
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
               <label className="checkbox-label">
-                <input type="checkbox" checked={dateForm.is_working}
-                  onChange={e => setDateForm({ ...dateForm, is_working: e.target.checked })} />
+                <input type="checkbox" checked={dateFormIsWorking}
+                  onChange={e => setDateFormIsWorking(e.target.checked)} />
                 Рабочий день
               </label>
             </div>
-            {dateForm.is_working && (
-              <div className="form-group" style={{ marginBottom: 12 }}>
-                <label>Макс. записей</label>
-                <input className="form-input" style={{ height: 48 }} type="number" min="1" max="999"
-                  placeholder="999 — без лимита" value={dateForm.max_bookings}
-                  onChange={e => setDateForm({ ...dateForm, max_bookings: parseInt(e.target.value) || 999 })} />
+            {dateFormIsWorking && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 500 }}>
+                  Временные интервалы
+                </label>
+                {dateFormIntervals.map((interval, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <input className="form-input" style={{ flex: 1, fontSize: 13, padding: '8px', height: 48 }}
+                      type="time" value={interval.start}
+                      onChange={e => handleUpdateInterval(idx, 'start', e.target.value)} />
+                    <span style={{ color: 'var(--text-dim)' }}>—</span>
+                    <input className="form-input" style={{ flex: 1, fontSize: 13, padding: '8px', height: 48 }}
+                      type="time" value={interval.end}
+                      onChange={e => handleUpdateInterval(idx, 'end', e.target.value)} />
+                    {dateFormIntervals.length > 1 && (
+                      <button className="btn btn-sm btn-danger" style={{ padding: '6px 10px', fontSize: 12 }}
+                        onClick={() => handleRemoveInterval(idx)}>✕</button>
+                    )}
+                  </div>
+                ))}
+                <button className="btn btn-sm btn-secondary" style={{ fontSize: 12, marginTop: 4 }}
+                  onClick={handleAddInterval}>
+                  ➕ Добавить интервал
+                </button>
               </div>
             )}
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label>Примечание (необязательно)</label>
               <input className="form-input" style={{ height: 48 }}
-                placeholder="Например: только 1 запись" value={dateForm.note}
-                onChange={e => setDateForm({ ...dateForm, note: e.target.value })} />
+                placeholder="Например: сегодня только стрижки" value={dateFormNote}
+                onChange={e => setDateFormNote(e.target.value)} />
             </div>
-            <button className="btn btn-primary" onClick={handleSaveDateOverride} disabled={!dateForm.date}>
+            <button className="btn btn-primary" onClick={handleSaveDateOverride} disabled={!dateFormDate}>
               💾 Сохранить
             </button>
           </div>
           {dateOverrides.length === 0 ? (
-            <p style={{ color: 'var(--text-dim)', fontSize: 13, textAlign: 'center' }}>Особых дат пока нет</p>
+            <p style={{ color: 'var(--text-dim)', fontSize: 13, textAlign: 'center', marginTop: 16 }}>Особых дат пока нет</p>
           ) : (
-            dateOverrides.map(o => (
-              <div key={o.id} className="admin-item">
-                <div className="admin-item-info">
-                  <h4>{o.date}</h4>
-                  <span>{o.is_working ? `✅ Рабочий день · макс ${o.max_bookings} записей` : '❌ Выходной'}{o.note ? ` · ${o.note}` : ''}</span>
+            dateOverrides.map(o => {
+              let intervalsText = ''
+              if (o.is_working && o.working_intervals) {
+                try {
+                  const intervals = JSON.parse(o.working_intervals)
+                  intervalsText = intervals.map((i: TimeInterval) => `${i.start}–${i.end}`).join(', ')
+                } catch {}
+              }
+              return (
+                <div key={o.id} className="admin-item">
+                  <div className="admin-item-info">
+                    <h4>{o.date}</h4>
+                    <span>
+                      {o.is_working
+                        ? (intervalsText ? `✅ ${intervalsText}` : '✅ Рабочий день (по расписанию)')
+                        : '❌ Выходной'
+                      }
+                      {o.note ? ` · ${o.note}` : ''}
+                    </span>
+                  </div>
+                  <div className="admin-actions">
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDeleteDateOverride(o.id)}>✕</button>
+                  </div>
                 </div>
-                <div className="admin-actions">
-                  <button className="btn btn-sm btn-danger" onClick={() => handleDeleteDateOverride(o.id)}>✕</button>
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       )}

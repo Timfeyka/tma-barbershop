@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { post } from '../api'
-import type { MasterRegisterResponse, TelegramUser } from '../types'
+import type { Master, MasterRegisterResponse, TelegramUser } from '../types'
 import Toast from './Toast'
 
 interface InviteRegistrationProps {
   inviteToken: string
   tgUser: TelegramUser | null
-  onRegister: () => void
+  onRegister: (master: Master) => void
 }
 
 export default function InviteRegistration({ inviteToken, tgUser, onRegister }: InviteRegistrationProps) {
@@ -20,6 +20,11 @@ export default function InviteRegistration({ inviteToken, tgUser, onRegister }: 
     setTimeout(() => setToast(null), 2500)
   }
 
+  const getFullName = () => {
+    if (!tgUser) return ''
+    return [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Мастер'
+  }
+
   const handleRegister = async (manualData?: { name: string; username: string | null; telegram_id: number }) => {
     const payload = manualData || {}
     if (!payload.name && !tgUser) return
@@ -27,13 +32,14 @@ export default function InviteRegistration({ inviteToken, tgUser, onRegister }: 
     try {
       const res = await post<MasterRegisterResponse>('/masters/register-by-invite', {
         token: inviteToken,
-        name: payload.name || tgUser?.first_name || tgUser?.username || 'Мастер',
+        name: payload.name || getFullName(),
         telegram_id: payload.telegram_id || tgUser?.id || 0,
         username: payload.username || tgUser?.username || null,
-        photo_url: null,
+        photo_url: tgUser?.photo_url || null,
       })
+      setRegistering(false)
       showToast(res.message)
-      setTimeout(onRegister, 500) // даём тосту показаться
+      setTimeout(() => onRegister(res.master), 500) // даём тосту показаться
     } catch (e: any) {
       showToast('Ошибка: ' + e.message)
       setRegistering(false)
@@ -49,7 +55,7 @@ export default function InviteRegistration({ inviteToken, tgUser, onRegister }: 
       {tgUser ? (
         <div style={{ padding: 24, textAlign: 'center' }}>
           <span style={{ fontSize: 48, display: 'block', marginBottom: 16 }}>👋</span>
-          <h2 style={{ marginBottom: 8 }}>{tgUser.first_name || tgUser.username}</h2>
+          <h2 style={{ marginBottom: 8 }}>{getFullName()}</h2>
           <p style={{ color: 'var(--text-dim)', marginBottom: 24 }}>
             Вы получили приглашение стать мастером в нашем барбершопе.
           </p>

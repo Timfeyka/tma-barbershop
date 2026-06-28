@@ -57,7 +57,7 @@ export interface DateOverride {
   master_id: number
   date: string  // "YYYY-MM-DD"
   is_working: boolean
-  max_bookings: number
+  working_intervals: string | null  // JSON: [{"start":"10:00","end":"12:00"},{"start":"14:00","end":"20:00"}]
   note: string | null
 }
 
@@ -148,6 +148,5 @@ export interface CalendarDay {
 export interface DateOverrideForm {
   date: string
   is_working: boolean
-  max_bookings: number
   note: string
 }

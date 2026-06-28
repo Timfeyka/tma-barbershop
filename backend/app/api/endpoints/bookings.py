@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from typing import List
@@ -49,7 +50,50 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
     if override and not override.is_working:
         return {"date": date, "slots": [], "note": "Мастер не работает в этот день"}
 
-    max_bookings = override.max_bookings if override else 999
+    # Если есть working_intervals — используем их вместо расписания
+    if override and override.working_intervals:
+        try:
+            intervals = json.loads(override.working_intervals)
+        except (json.JSONDecodeError, TypeError):
+            intervals = None
+
+        if intervals and len(intervals) > 0:
+            all_slots = []
+            for interval in intervals:
+                start_time = interval.get("start", "10:00")
+                end_time = interval.get("end", "20:00")
+                start_h, start_m = map(int, start_time.split(":"))
+                end_h, end_m = map(int, end_time.split(":"))
+                hour = start_h
+                minute = start_m
+                while hour < end_h or (hour == end_h and minute < end_m):
+                    all_slots.append(f"{hour:02d}:{minute:02d}")
+                    minute += 60  # интервал 1 час
+                    if minute >= 60:
+                        hour += 1
+                        minute = 0
+
+            # Получаем занятые слоты
+            day_start = datetime.combine(target_date, datetime.min.time())
+            day_end = day_start + timedelta(days=1)
+
+            booked = db.query(models.Booking).filter(
+                models.Booking.master_id == master_id,
+                models.Booking.is_cancelled == False,
+                models.Booking.booking_time >= day_start - timedelta(days=2),
+                models.Booking.booking_time < day_end + timedelta(days=2),
+            ).all()
+
+            booked_times = set()
+            for b in booked:
+                b_date = b.booking_time.date() if hasattr(b.booking_time, 'date') else target_date
+                if b_date == target_date:
+                    booked_times.add(b.booking_time.strftime("%H:%M"))
+
+            available = [{"time": slot, "available": slot not in booked_times} for slot in all_slots]
+            return {"date": date, "slots": available}
+
+    max_bookings = 999
 
     # Получаем расписание мастера на этот день недели (0=пн ... 6=вс)
     day_of_week = target_date.weekday()

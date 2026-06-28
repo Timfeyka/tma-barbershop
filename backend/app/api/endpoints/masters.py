@@ -1,7 +1,7 @@
 import uuid
-import os
+import json
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from app.core.database import get_db
@@ -158,6 +158,7 @@ def update_master_schedule(master_id: int, payload: schemas.MasterScheduleUpdate
             is_working=item.is_working,
             start_time=item.start_time,
             end_time=item.end_time,
+            slot_interval_minutes=item.slot_interval_minutes,
         )
         db.add(db_schedule)
 
@@ -183,7 +184,7 @@ def get_date_overrides(master_id: int, year: int = None, month: int = None, db: 
 
 @router.put("/{master_id}/date-overrides", response_model=schemas.DateOverrideResponse)
 def upsert_date_override(master_id: int, payload: schemas.DateOverrideCreate, db: Session = Depends(get_db)):
-    """Создать или обновить особую дату мастера.
+    """Создать или обновить особую дату мастера (с рабочими интервалами).
     Если статус рабочего дня изменился — уведомляет всех клиентов с записями на этот день."""
     master = db.query(models.Master).filter(models.Master.id == master_id).first()
     if not master:
@@ -198,7 +199,7 @@ def upsert_date_override(master_id: int, payload: schemas.DateOverrideCreate, db
     if existing:
         old_is_working = existing.is_working
         existing.is_working = payload.is_working
-        existing.max_bookings = payload.max_bookings
+        existing.working_intervals = payload.working_intervals
         existing.note = payload.note
     else:
         old_is_working = True  # по умолчанию день рабочий
@@ -206,7 +207,7 @@ def upsert_date_override(master_id: int, payload: schemas.DateOverrideCreate, db
             master_id=master_id,
             date=payload.date,
             is_working=payload.is_working,
-            max_bookings=payload.max_bookings,
+            working_intervals=payload.working_intervals,
             note=payload.note,
         )
         db.add(existing)
@@ -321,52 +322,11 @@ def link_telegram(master_id: int, payload: schemas.LinkTelegramRequest, db: Sess
 
     master.telegram_id = payload.telegram_id
     master.tg_username = payload.tg_username or master.tg_username
+
+    # Если передан photo_url из Telegram — обновляем
+    if payload.photo_url:
+        master.photo_url = payload.photo_url
+
     db.commit()
     db.refresh(master)
-    return master
-
-
-# --- Загрузка фото мастера ---
-
-@router.put("/{master_id}/photo")
-async def upload_master_photo(master_id: int, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Загрузить фото мастера. Принимает multipart/form-data с полем file."""
-    master = db.query(models.Master).filter(models.Master.id == master_id).first()
-    if not master:
-        raise HTTPException(status_code=404, detail="Мастер не найден")
-
-    # Проверяем тип файла
-    if file.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
-        raise HTTPException(status_code=400, detail="Поддерживаются только JPEG, PNG, WebP и GIF")
-
-    # Определяем расширение (в нижнем регистре)
-    ext = (file.filename.rsplit(".", 1)[-1] or "jpg").lower() if file.filename else "jpg"
-    if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
-        raise HTTPException(status_code=400, detail=f"Расширение не поддерживается: .{ext}")
-
-    filename = f"{master_id}.{ext}"
-    upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "uploads", "photos")
-    os.makedirs(upload_dir, exist_ok=True)
-    filepath = os.path.join(upload_dir, filename)
-
-    # Удаляем старый файл (если было фото с другим расширением)
-    for old_ext in ("jpg", "jpeg", "png", "webp", "gif"):
-        if old_ext != ext:
-            old_path = os.path.join(upload_dir, f"{master_id}.{old_ext}")
-            if os.path.exists(old_path):
-                os.remove(old_path)
-                break
-
-    # Сохраняем файл
-    contents = await file.read()
-    with open(filepath, "wb") as f:
-        f.write(contents)
-    print(f"✅ Фото мастера {master_id} сохранено: {filepath} ({len(contents)} байт)")
-
-    # Обновляем photo_url
-    base_url = str(request.base_url).rstrip("/")
-    master.photo_url = f"{base_url}/uploads/photos/{filename}"
-    db.commit()
-    db.refresh(master)
-
     return master

@@ -120,31 +120,8 @@ def startup():
     except Exception as e:
         print(f"⚠️ Ошибка авто-настройки Menu Button / webhook: {e}")
 
-    # Сидирование данных
-    if db.query(models.Master).count() == 0:
-        masters_data = [
-            models.Master(
-                name="Алексей",
-                role="Топ-барбер",
-                photo_url="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&h=200&fit=crop",
-                bio="Мастер с 8-летним стажем. Специализация — мужские стрижки и борода.",
-            ),
-            models.Master(
-                name="Дмитрий",
-                role="Барбер",
-                photo_url="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop",
-                bio="Молодой специалист, но уже зарекомендовал себя лучшим.",
-            ),
-            models.Master(
-                name="Максим",
-                role="Барбер",
-                photo_url="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop",
-                bio="Королевские бороды и стильные стрижки — мой конёк.",
-            ),
-        ]
-        db.add_all(masters_data)
-        db.commit()
-
+    # Сидирование данных (только услуги, мастеров нет)
+    if db.query(models.Service).count() == 0:
         services_data = [
             models.Service(title="Мужская стрижка", price=1500, duration_minutes=45, category="Стрижка"),
             models.Service(title="Стрижка машинкой", price=1000, duration_minutes=30, category="Стрижка"),

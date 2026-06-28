@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { get, post, put, del } from '../api'
-import type { Master, Service, Booking, AdminStats, BotInfo, InviteLinkResponse, ScheduleItem, MasterService } from '../types'
+import type { Master, Service, Booking, BotInfo, InviteLinkResponse, ScheduleItem, MasterService } from '../types'
 import Toast from './Toast'
 
 const DAYS_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
@@ -13,7 +13,6 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const [authed, setAuthed] = useState(false)
   const [pass, setPass] = useState('')
   const [tab, setTab] = useState('bookings')
-  const [stats, setStats] = useState<AdminStats | null>(null)
   const [bookings, setBookings] = useState<Booking[]>([])
   const [masters, setMasters] = useState<Master[]>([])
   const [services, setServices] = useState<Service[]>([])
@@ -44,14 +43,12 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   }, [])
 
   const loadData = useCallback(async () => {
-    const [s, b, m, sv, bi] = await Promise.all([
-      get<AdminStats>('/admin/stats').catch(() => null),
+    const [b, m, sv, bi] = await Promise.all([
       get<Booking[]>('/admin/bookings').catch(() => []),
       get<Master[]>('/admin/masters').catch(() => []),
       get<Service[]>('/admin/services').catch(() => []),
       get<BotInfo>('/admin/bot-info').catch(() => null),
     ])
-    if (s) setStats(s)
     setBookings(b)
     setMasters(m)
     setServices(sv)
@@ -210,30 +207,9 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
         ← Выйти
       </button>
 
-      {stats && (
-        <div className="admin-stats">
-          <div className="stat-card">
-            <div className="stat-num">{stats.total_bookings}</div>
-            <div className="stat-label">Всего записей</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-num">{stats.confirmed_bookings}</div>
-            <div className="stat-label">Подтверждено</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-num">{stats.pending_bookings}</div>
-            <div className="stat-label">Ожидают</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-num">{stats.total_masters}</div>
-            <div className="stat-label">Мастера</div>
-          </div>
-        </div>
-      )}
-
       <div className="summary" style={{ marginBottom: 16, padding: 12, fontSize: 13 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>🤖 Webhook: {stats && !botInfo?.has_bot_token ? '⚠️ нет BOT_TOKEN' : 'настроен'}</span>
+          <span>🤖 Webhook: {!botInfo?.has_bot_token ? '⚠️ нет BOT_TOKEN' : 'настроен'}</span>
           <button className="btn btn-sm btn-secondary"
             onClick={async () => {
               try {
