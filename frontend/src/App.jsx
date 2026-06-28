@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { get, post, put, del } from './api'
 import './App.css'
 
@@ -375,9 +375,49 @@ function App() {
         tg_username: tgUser.username || null,
       })
       showToast('Telegram привязан! Теперь вы будете получать уведомления.')
+      loadMasterViewMaster()
     } catch (e) {
       showToast('Ошибка: ' + e.message)
     }
+  }
+
+  const photoInputRef = useRef(null)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+
+  const handleMasterPhotoUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !masterViewMaster) return
+    setUploadingPhoto(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`/api/masters/${masterViewMaster.id}/photo`, {
+        method: 'PUT',
+        body: formData,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Ошибка загрузки')
+      }
+      const updated = await res.json()
+      setMasterViewMaster(updated)
+      // Обновляем в списке мастеров тоже
+      setMasters(prev => prev.map(m => m.id === updated.id ? updated : m))
+      showToast('✅ Фото обновлено!')
+    } catch (e) {
+      showToast('Ошибка: ' + e.message)
+    } finally {
+      setUploadingPhoto(false)
+      if (photoInputRef.current) photoInputRef.current.value = ''
+    }
+  }
+
+  const loadMasterViewMaster = async () => {
+    if (!masterViewMaster) return
+    try {
+      const res = await get(`/masters/${masterViewMaster.id}`)
+      if (res) setMasterViewMaster(res)
+    } catch {}
   }
 
   // ===== АДМИНКА =====
@@ -1110,6 +1150,30 @@ function App() {
             </button>
           </div>
         )}
+
+        {/* Фото мастера */}
+        <div className="master-photo-section">
+          <div className="master-avatar-wrapper" onClick={() => photoInputRef.current?.click()}>
+            {masterViewMaster.photo_url ? (
+              <img src={masterViewMaster.photo_url} alt={masterViewMaster.name} className="master-avatar-img" />
+            ) : (
+              <div className="master-avatar-placeholder">
+                {masterViewMaster.name[0]?.toUpperCase() || '?'}
+              </div>
+            )}
+            <div className="master-avatar-overlay">
+              {uploadingPhoto ? '⏳' : '📷'}
+            </div>
+          </div>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleMasterPhotoUpload}
+          />
+          <div className="master-photo-hint">Нажмите на фото для загрузки</div>
+        </div>
 
         {/* Табы мастера */}
         <nav className="nav-tabs" style={{ marginTop: 4 }}>

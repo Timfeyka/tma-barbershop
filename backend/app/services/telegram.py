@@ -62,7 +62,6 @@ def send_client_confirmation(
 ) -> bool:
     """Отправить клиенту подтверждение записи."""
     time_str = booking_time.strftime("%d.%m.%Y в %H:%M")
-    booking_url = os.getenv("BASE_URL", "")
 
     text = (
         f"✅ <b>Вы записаны!</b>\n\n"
@@ -70,11 +69,8 @@ def send_client_confirmation(
         f"📋 <b>Услуга:</b> {service_title}\n"
         f"💰 <b>Цена:</b> {service_price} ₽\n"
         f"📅 <b>Время:</b> {time_str}\n\n"
+        f"Не забудьте прийти вовремя! 😊"
     )
-    if booking_url:
-        text += f"<a href='{booking_url}'>📲 Открыть приложение</a>"
-    else:
-        text += "Не забудьте прийти вовремя!"
 
     return _send_telegram_message(chat_id, text)
 

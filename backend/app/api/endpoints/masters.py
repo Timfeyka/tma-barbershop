@@ -1,5 +1,6 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request
+import os
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from app.core.database import get_db
@@ -244,4 +245,38 @@ def link_telegram(master_id: int, payload: schemas.LinkTelegramRequest, db: Sess
     master.tg_username = payload.tg_username or master.tg_username
     db.commit()
     db.refresh(master)
+    return master
+
+
+# --- Загрузка фото мастера ---
+
+@router.put("/{master_id}/photo")
+async def upload_master_photo(master_id: int, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Загрузить фото мастера. Принимает multipart/form-data с полем file."""
+    master = db.query(models.Master).filter(models.Master.id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=404, detail="Мастер не найден")
+
+    # Проверяем тип файла
+    if file.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+        raise HTTPException(status_code=400, detail="Поддерживаются только JPEG, PNG, WebP и GIF")
+
+    # Определяем расширение
+    ext = file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "jpg"
+    filename = f"{master_id}.{ext}"
+    upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "uploads", "photos")
+    os.makedirs(upload_dir, exist_ok=True)
+    filepath = os.path.join(upload_dir, filename)
+
+    # Сохраняем файл
+    contents = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(contents)
+
+    # Обновляем photo_url
+    base_url = str(request.base_url).rstrip("/")
+    master.photo_url = f"{base_url}/uploads/photos/{filename}"
+    db.commit()
+    db.refresh(master)
+
     return master

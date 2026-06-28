@@ -44,11 +44,12 @@ def _run_migration(db, sql_sqlite, sql_pg, label):
 
 
 def _auto_setup_menu_button(base_url: str):
-    """Автоматически настроить Menu Button бота на текущий URL."""
+    """Автоматически настроить Menu Button + описание бота на текущий URL."""
     if not BOT_TOKEN:
         print("⚠️ BOT_TOKEN не задан — Menu Button не настроен")
         return
 
+    # 1. Menu Button (открывает Mini App)
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setChatMenuButton"
     payload = json.dumps({
         "menu_button": {
@@ -57,7 +58,6 @@ def _auto_setup_menu_button(base_url: str):
             "web_app": {"url": base_url},
         }
     }).encode("utf-8")
-
     req = urllib.request.Request(
         url, data=payload,
         headers={"Content-Type": "application/json"},
@@ -67,6 +67,40 @@ def _auto_setup_menu_button(base_url: str):
         print(f"✅ Menu Button настроен: {base_url}")
     except Exception as e:
         print(f"⚠️ Ошибка настройки Menu Button: {e}")
+
+    # 2. Описание бота (показывает текущий URL для справки)
+    description_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setMyDescription"
+    desc_payload = json.dumps({
+        "description": (
+            f"💈 Барбершоп — запись онлайн через Mini App.\n\n"
+            f"🌐 Актуальная ссылка: {base_url}\n\n"
+            f"Нажмите кнопку «💈 Барбершоп» ниже, чтобы открыть приложение."
+        )
+    }).encode("utf-8")
+    req2 = urllib.request.Request(
+        description_url, data=desc_payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req2, timeout=10)
+        print(f"✅ Описание бота обновлено: {base_url}")
+    except Exception as e:
+        print(f"⚠️ Ошибка обновления описания: {e}")
+
+    # 3. Short description (показывается в списке ботов)
+    short_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setMyShortDescription"
+    short_payload = json.dumps({
+        "short_description": f"💈 Запись в барбершоп. Открыть: {base_url}"
+    }).encode("utf-8")
+    req3 = urllib.request.Request(
+        short_url, data=short_payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req3, timeout=10)
+        print(f"✅ Short description бота обновлено")
+    except Exception as e:
+        print(f"⚠️ Ошибка обновления short description: {e}")
 
 
 @app.on_event("startup")
@@ -194,6 +228,12 @@ if os.path.exists(FRONTEND_DIST):
     print(f"✅ Статика фронтенда подключена: {FRONTEND_DIST}")
 else:
     print(f"ℹ️ Статика фронтенда не найдена: {FRONTEND_DIST}")
+
+# Раздача загруженных файлов (фото мастеров и т.д.)
+UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
+if os.path.exists(UPLOADS_DIR):
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+    print(f"✅ Папка загрузок подключена: {UPLOADS_DIR}")
 
 
 @app.get("/api/health")
