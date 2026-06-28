@@ -70,8 +70,10 @@ def admin_delete_master(master_id: int, db: Session = Depends(get_db)):
     master = db.query(models.Master).filter(models.Master.id == master_id).first()
     if not master:
         raise HTTPException(status_code=404, detail="Мастер не найден")
-    # Сначала удаляем все записи к этому мастеру
+    # Сначала удаляем все связанные записи (явно, для совместимости с SQLite)
     db.query(models.Booking).filter(models.Booking.master_id == master_id).delete()
+    db.query(models.MasterDateOverride).filter(models.MasterDateOverride.master_id == master_id).delete()
+    # MasterService и MasterSchedule удаляются через ORM cascade="all, delete-orphan"
     db.delete(master)
     db.commit()
     return {"status": "deleted"}
