@@ -5,6 +5,7 @@ import Toast from './Toast'
 import { MONTHS_RU_GEN } from './CalendarWidget'
 
 const DAYS_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
 interface MasterDashboardProps {
   master: Master
@@ -25,10 +26,6 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
   const [ownServices, setOwnServices] = useState<MasterService[]>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [dateOverrides, setDateOverrides] = useState<DateOverride[]>([])
-  const [dateFormDate, setDateFormDate] = useState('')
-  const [dateFormIsWorking, setDateFormIsWorking] = useState(true)
-  const [dateFormIntervals, setDateFormIntervals] = useState<TimeInterval[]>([{ start: '10:00', end: '20:00' }])
-  const [dateFormNote, setDateFormNote] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [imgLoadFailed, setImgLoadFailed] = useState(false)
 
@@ -116,50 +113,6 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
     } catch (e: any) {
       showToast('Ошибка: ' + e.message)
     }
-  }
-
-  const handleAddInterval = () => {
-    setDateFormIntervals([...dateFormIntervals, { start: '10:00', end: '20:00' }])
-  }
-
-  const handleRemoveInterval = (idx: number) => {
-    if (dateFormIntervals.length <= 1) return
-    setDateFormIntervals(dateFormIntervals.filter((_, i) => i !== idx))
-  }
-
-  const handleUpdateInterval = (idx: number, field: 'start' | 'end', value: string) => {
-    const next = [...dateFormIntervals]
-    next[idx] = { ...next[idx], [field]: value }
-    setDateFormIntervals(next)
-  }
-
-  const handleSaveDateOverride = async () => {
-    if (!dateFormDate) return
-    try {
-      const intervalsJson = dateFormIsWorking && dateFormIntervals.length > 0
-        ? JSON.stringify(dateFormIntervals)
-        : null
-      await put(`/masters/${master.id}/date-overrides`, {
-        date: dateFormDate,
-        is_working: dateFormIsWorking,
-        working_intervals: intervalsJson,
-        note: dateFormNote || null,
-      })
-      showToast('Дата сохранена!')
-      setDateFormDate('')
-      setDateFormIsWorking(true)
-      setDateFormIntervals([{ start: '10:00', end: '20:00' }])
-      setDateFormNote('')
-      loadDateOverrides()
-    } catch (e: any) {
-      showToast('Ошибка: ' + e.message)
-    }
-  }
-
-  const handleDeleteDateOverride = async (overrideId: number) => {
-    await del(`/masters/${master.id}/date-overrides/${overrideId}`)
-    showToast('Особая дата удалена')
-    loadDateOverrides()
   }
 
   const formatDate = (iso: string) => {
@@ -348,91 +301,314 @@ export default function MasterDashboard({ master, masters, services, tgUser, onL
       )}
 
       {tab === 'dates' && (
-        <div style={{ marginTop: 8 }}>
-          <h3 style={{ marginBottom: 8 }}>Особые даты</h3>
-          <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 16 }}>
-            Укажите, в какие дни вы работаете. Можно задать несколько временных интервалов (например: 10:00–12:00, обед 12:00–14:00, 14:00–20:00).
-          </p>
-          <div className="date-override-card">
-            <div className="form-group" style={{ marginBottom: 12 }}>
-              <label>Дата</label>
-              <input className="form-input" style={{ height: 48 }} type="date"
-                value={dateFormDate}
-                onChange={e => setDateFormDate(e.target.value)} />
+        <DatesView
+          masterId={master.id}
+          schedule={schedule}
+          loadDateOverrides={loadDateOverrides}
+        />
+      )}
+
+      <Toast message={toast} onClose={() => setToast(null)} />
+    </div>
+  )
+}
+
+// ——— Компонент календаря особых дат ———
+const CALENDAR_DAYS = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС']
+
+interface DatesViewProps {
+  masterId: number
+  schedule: ScheduleItem[]
+  loadDateOverrides: () => Promise<void>
+}
+
+function DatesView({ masterId, schedule, loadDateOverrides }: DatesViewProps) {
+  const now = new Date()
+  const [calYear, setCalYear] = useState(now.getFullYear())
+  const [calMonth, setCalMonth] = useState(now.getMonth())
+  const [overrides, setOverrides] = useState<DateOverride[]>([])
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [selIsWorking, setSelIsWorking] = useState(true)
+  const [selIntervals, setSelIntervals] = useState<TimeInterval[]>([{ start: '10:00', end: '20:00' }])
+  const [selNote, setSelNote] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 2500)
+  }, [])
+
+  // Загружаем оверрайды на текущий месяц
+  useEffect(() => {
+    loadOverrides(calYear, calMonth)
+  }, [calYear, calMonth])
+
+  const loadOverrides = async (year: number, month: number) => {
+    const data = await get<DateOverride[]>(
+      `/masters/${masterId}/date-overrides?year=${year}&month=${month + 1}`
+    ).catch(() => [])
+    setOverrides(data)
+  }
+
+  // Получить оверрайд для даты
+  const getOverride = (dateStr: string) => overrides.find(o => o.date === dateStr)
+
+  // Клик по дню в календаре
+  const handleDayClick = (day: number) => {
+    const ym = `${calYear}-${String(calMonth + 1).padStart(2, '0')}`
+    const dateStr = `${ym}-${String(day).padStart(2, '0')}`
+    setSelectedDate(dateStr)
+
+    const existing = getOverride(dateStr)
+    if (existing) {
+      setSelIsWorking(existing.is_working)
+      setSelNote(existing.note || '')
+      if (existing.is_working && existing.working_intervals) {
+        try {
+          setSelIntervals(JSON.parse(existing.working_intervals))
+        } catch {
+          setSelIntervals([{ start: '10:00', end: '20:00' }])
+        }
+      } else {
+        setSelIntervals([{ start: '10:00', end: '20:00' }])
+      }
+    } else {
+      // Заполняем из расписания по дню недели
+      const dow = new Date(calYear, calMonth, day).getDay()
+      const mondayDow = dow === 0 ? 6 : dow - 1
+      const schedItem = schedule.find(s => s.day_of_week === mondayDow)
+      setSelIsWorking(schedItem?.is_working !== false)
+      if (schedItem?.is_working && schedItem?.start_time && schedItem?.end_time) {
+        setSelIntervals([{ start: schedItem.start_time, end: schedItem.end_time }])
+      } else {
+        setSelIntervals([{ start: '10:00', end: '20:00' }])
+      }
+      setSelNote('')
+    }
+  }
+
+  // Заполнить из расписания
+  const handleFillFromSchedule = () => {
+    if (!selectedDate) return
+    const d = new Date(selectedDate)
+    const dow = d.getDay()
+    const mondayDow = dow === 0 ? 6 : dow - 1
+    const schedItem = schedule.find(s => s.day_of_week === mondayDow)
+    if (schedItem?.is_working && schedItem?.start_time && schedItem?.end_time) {
+      setSelIntervals([{ start: schedItem.start_time, end: schedItem.end_time }])
+      setSelIsWorking(true)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!selectedDate) return
+    await put(`/masters/${masterId}/date-overrides`, {
+      date: selectedDate,
+      is_working: selIsWorking,
+      working_intervals: selIsWorking && selIntervals.length > 0 ? JSON.stringify(selIntervals) : null,
+      note: selNote || null,
+    })
+    showToast('Сохранено!')
+    await loadOverrides(calYear, calMonth)
+    await loadDateOverrides()
+  }
+
+  const handleDelete = async () => {
+    if (!selectedDate) return
+    const ov = getOverride(selectedDate)
+    if (!ov) return
+    await del(`/masters/${masterId}/date-overrides/${ov.id}`)
+    showToast('Удалено')
+    setSelectedDate(null)
+    await loadOverrides(calYear, calMonth)
+    await loadDateOverrides()
+  }
+
+  // Построение сетки календаря
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+  const firstDay = new Date(calYear, calMonth, 1).getDay()
+  // Сдвиг: ПН первый
+  const startOffset = firstDay === 0 ? 6 : firstDay - 1
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+  const weeks: (number | null)[][] = []
+  let row: (number | null)[] = []
+  for (let i = 0; i < startOffset; i++) row.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    row.push(d)
+    if (row.length === 7) { weeks.push(row); row = [] }
+  }
+  if (row.length > 0) { while (row.length < 7) row.push(null); weeks.push(row) }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <h3 style={{ marginBottom: 8 }}>Особые даты</h3>
+      <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 12 }}>
+        Нажмите на дату в календаре, чтобы настроить день.
+      </p>
+
+      {/* Навигация по месяцам */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn btn-sm btn-secondary" style={{ fontSize: 16, padding: '6px 12px' }}
+          onClick={() => { if (calMonth === 0) { setCalYear(calYear - 1); setCalMonth(11) } else setCalMonth(calMonth - 1) }}>
+          ◀
+        </button>
+        <span style={{ fontWeight: 500, fontSize: 16 }}>{MONTHS_RU[calMonth]} {calYear}</span>
+        <button className="btn btn-sm btn-secondary" style={{ fontSize: 16, padding: '6px 12px' }}
+          onClick={() => { if (calMonth === 11) { setCalYear(calYear + 1); setCalMonth(0) } else setCalMonth(calMonth + 1) }}>
+          ▶
+        </button>
+      </div>
+
+      {/* Сетка календаря */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+          {CALENDAR_DAYS.map(d => (
+            <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-dim)', padding: '4px 0' }}>
+              {d}
             </div>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-              <label className="checkbox-label">
-                <input type="checkbox" checked={dateFormIsWorking}
-                  onChange={e => setDateFormIsWorking(e.target.checked)} />
-                Рабочий день
-              </label>
-            </div>
-            {dateFormIsWorking && (
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 500 }}>
-                  Временные интервалы
-                </label>
-                {dateFormIntervals.map((interval, idx) => (
-                  <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                    <input className="form-input" style={{ flex: 1, fontSize: 13, padding: '8px', height: 48 }}
-                      type="time" value={interval.start}
-                      onChange={e => handleUpdateInterval(idx, 'start', e.target.value)} />
-                    <span style={{ color: 'var(--text-dim)' }}>—</span>
-                    <input className="form-input" style={{ flex: 1, fontSize: 13, padding: '8px', height: 48 }}
-                      type="time" value={interval.end}
-                      onChange={e => handleUpdateInterval(idx, 'end', e.target.value)} />
-                    {dateFormIntervals.length > 1 && (
-                      <button className="btn btn-sm btn-danger" style={{ padding: '6px 10px', fontSize: 12 }}
-                        onClick={() => handleRemoveInterval(idx)}>✕</button>
-                    )}
-                  </div>
-                ))}
-                <button className="btn btn-sm btn-secondary" style={{ fontSize: 12, marginTop: 4 }}
-                  onClick={handleAddInterval}>
-                  ➕ Добавить интервал
-                </button>
-              </div>
-            )}
-            <div className="form-group" style={{ marginBottom: 12 }}>
-              <label>Примечание (необязательно)</label>
-              <input className="form-input" style={{ height: 48 }}
-                placeholder="Например: сегодня только стрижки" value={dateFormNote}
-                onChange={e => setDateFormNote(e.target.value)} />
-            </div>
-            <button className="btn btn-primary" onClick={handleSaveDateOverride} disabled={!dateFormDate}>
-              💾 Сохранить
-            </button>
-          </div>
-          {dateOverrides.length === 0 ? (
-            <p style={{ color: 'var(--text-dim)', fontSize: 13, textAlign: 'center', marginTop: 16 }}>Особых дат пока нет</p>
-          ) : (
-            dateOverrides.map(o => {
-              let intervalsText = ''
-              if (o.is_working && o.working_intervals) {
-                try {
-                  const intervals = JSON.parse(o.working_intervals)
-                  intervalsText = intervals.map((i: TimeInterval) => `${i.start}–${i.end}`).join(', ')
-                } catch {}
+          ))}
+        </div>
+        {weeks.map((week, wi) => (
+          <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+            {week.map((day, di) => {
+              if (day === null) return <div key={di} />
+              const ym = `${calYear}-${String(calMonth + 1).padStart(2, '0')}`
+              const dateStr = `${ym}-${String(day).padStart(2, '0')}`
+              const ov = getOverride(dateStr)
+              const isSelected = selectedDate === dateStr
+              const isToday = dateStr === todayStr
+              let bg = 'var(--card-bg)'
+              let color = 'var(--text)'
+              if (ov) {
+                bg = ov.is_working ? 'rgba(46,204,113,0.2)' : 'rgba(231,76,60,0.15)'
+                color = ov.is_working ? '#27ae60' : '#e74c3c'
               }
               return (
-                <div key={o.id} className="admin-item">
-                  <div className="admin-item-info">
-                    <h4>{o.date}</h4>
-                    <span>
-                      {o.is_working
-                        ? (intervalsText ? `✅ ${intervalsText}` : '✅ Рабочий день (по расписанию)')
-                        : '❌ Выходной'
-                      }
-                      {o.note ? ` · ${o.note}` : ''}
-                    </span>
-                  </div>
-                  <div className="admin-actions">
-                    <button className="btn btn-sm btn-danger" onClick={() => handleDeleteDateOverride(o.id)}>✕</button>
-                  </div>
+                <div key={di} onClick={() => handleDayClick(day)}
+                  style={{
+                    textAlign: 'center', padding: '8px 0', borderRadius: 8, cursor: 'pointer',
+                    background: bg, color, fontWeight: isSelected || isToday ? 700 : 400,
+                    border: isSelected ? '2px solid var(--accent)' : isToday ? '2px solid var(--border)' : '2px solid transparent',
+                    fontSize: 14,
+                  }}>
+                  {day}
                 </div>
               )
-            })
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Форма редактирования даты */}
+      {selectedDate && (
+        <div style={{ background: 'var(--card-bg)', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+          <h4 style={{ marginBottom: 12, fontSize: 15 }}>
+            {selectedDate}
+            {getOverride(selectedDate) && (
+              <span style={{ fontSize: 12, color: 'var(--text-dim)', marginLeft: 8, fontWeight: 400 }}>
+                (редактирование)
+              </span>
+            )}
+          </h4>
+          <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <input type="checkbox" checked={selIsWorking} onChange={e => setSelIsWorking(e.target.checked)} />
+            <span>Рабочий день</span>
+          </label>
+
+          {selIsWorking && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: 500 }}>Время работы</label>
+                <button className="btn btn-sm btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }}
+                  onClick={handleFillFromSchedule}>
+                  📅 Из расписания
+                </button>
+              </div>
+              {selIntervals.map((interval, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                  <input className="form-input" style={{ flex: 1, fontSize: 13, padding: '8px', height: 44 }}
+                    type="time" value={interval.start}
+                    onChange={e => {
+                      const next = [...selIntervals]
+                      next[idx] = { ...next[idx], start: e.target.value }
+                      setSelIntervals(next)
+                    }} />
+                  <span style={{ color: 'var(--text-dim)' }}>—</span>
+                  <input className="form-input" style={{ flex: 1, fontSize: 13, padding: '8px', height: 44 }}
+                    type="time" value={interval.end}
+                    onChange={e => {
+                      const next = [...selIntervals]
+                      next[idx] = { ...next[idx], end: e.target.value }
+                      setSelIntervals(next)
+                    }} />
+                  {selIntervals.length > 1 && (
+                    <button className="btn btn-sm btn-danger" style={{ padding: '6px 10px', fontSize: 12 }}
+                      onClick={() => setSelIntervals(selIntervals.filter((_, i) => i !== idx))}>✕</button>
+                  )}
+                </div>
+              ))}
+              <button className="btn btn-sm btn-secondary" style={{ fontSize: 12, marginTop: 4 }}
+                onClick={() => setSelIntervals([...selIntervals, { start: '10:00', end: '20:00' }])}>
+                ➕ Добавить интервал
+              </button>
+            </div>
           )}
+
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 13 }}>Примечание</label>
+            <input className="form-input" style={{ height: 44 }}
+              placeholder="Например: сегодня только стрижки" value={selNote}
+              onChange={e => setSelNote(e.target.value)} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" onClick={handleSave}>
+              💾 Сохранить
+            </button>
+            {getOverride(selectedDate) && (
+              <button className="btn btn-danger" onClick={handleDelete}>
+                ✕ Удалить
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Список особых дат */}
+      {overrides.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <h4 style={{ fontSize: 14, marginBottom: 8 }}>Все особые даты в этом месяце</h4>
+          {overrides.map(o => {
+            let intervalsText = ''
+            if (o.is_working && o.working_intervals) {
+              try {
+                const intervals = JSON.parse(o.working_intervals)
+                intervalsText = intervals.map((i: TimeInterval) => `${i.start}–${i.end}`).join(', ')
+              } catch {}
+            }
+            return (
+              <div key={o.id} className="admin-item" style={{ cursor: 'pointer' }} onClick={() => {
+                setSelectedDate(o.date)
+                setSelIsWorking(o.is_working)
+                setSelNote(o.note || '')
+                if (o.is_working && o.working_intervals) {
+                  try { setSelIntervals(JSON.parse(o.working_intervals)) } catch { setSelIntervals([{ start: '10:00', end: '20:00' }]) }
+                } else { setSelIntervals([{ start: '10:00', end: '20:00' }]) }
+              }}>
+                <div className="admin-item-info">
+                  <h4 style={{ fontSize: 14 }}>{o.date}</h4>
+                  <span style={{ fontSize: 12 }}>
+                    {o.is_working
+                      ? (intervalsText ? `✅ ${intervalsText}` : '✅ Рабочий день')
+                      : '❌ Выходной'
+                    }
+                    {o.note ? ` · ${o.note}` : ''}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 

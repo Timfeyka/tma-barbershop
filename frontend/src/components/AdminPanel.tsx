@@ -33,6 +33,9 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const [editMasterServices, setEditMasterServices] = useState<Master | null>(null)
   const [editMasterServicesData, setEditMasterServicesData] = useState<MasterService[]>([])
 
+  // Редактирование услуги
+  const [editingService, setEditingService] = useState<number | null>(null)
+
   // Расписание мастера
   const [editMasterSchedule, setEditMasterSchedule] = useState<Master | null>(null)
   const [editMasterScheduleData, setEditMasterScheduleData] = useState<ScheduleItem[]>([])
@@ -341,18 +344,50 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
 
       {tab === 'services' && (
         <div className="admin-section">
+          <div style={{ marginBottom: 16 }}>
+            <details>
+              <summary style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 500, marginBottom: 8 }}>
+                ➕ Добавить услугу
+              </summary>
+              <ServiceForm
+                onSave={async (data) => {
+                  await post('/admin/services', data)
+                  showToast('Услуга создана')
+                  loadData()
+                }}
+              />
+            </details>
+          </div>
           {services.length === 0 ? (
             <div className="empty-state"><div className="icon">✂️</div><p>Нет услуг</p></div>
           ) : (
             services.map(s => (
               <div key={s.id} className="admin-item">
                 <div className="admin-item-info">
-                  <h4>{s.title}</h4>
-                  <span>{s.price} ₽ · {s.duration_minutes} мин</span>
+                  {editingService === s.id ? (
+                    <ServiceForm
+                      initial={{ title: s.title, price: s.price, duration_minutes: s.duration_minutes, category: s.category }}
+                      onSave={async (data) => {
+                        await put(`/admin/services/${s.id}`, data)
+                        setEditingService(null)
+                        showToast('Услуга обновлена')
+                        loadData()
+                      }}
+                      onCancel={() => setEditingService(null)}
+                    />
+                  ) : (
+                    <>
+                      <h4>{s.title}</h4>
+                      <span>{s.price} ₽ · {s.duration_minutes} мин · {s.category}</span>
+                    </>
+                  )}
                 </div>
-                <div className="admin-actions">
-                  <button className="btn btn-sm btn-danger" onClick={() => deleteSvc(s.id)}>✕</button>
-                </div>
+                {editingService !== s.id && (
+                  <div className="admin-actions">
+                    <button className="btn btn-sm btn-secondary" onClick={() => setEditingService(s.id)}>✏️</button>
+                    <button className="btn btn-sm btn-danger" onClick={() => deleteSvc(s.id)}>✕</button>
+                  </div>
+                )}
               </div>
             ))
           )}
@@ -461,6 +496,78 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       )}
 
       <Toast message={toast} onClose={() => setToast(null)} />
+    </div>
+  )
+}
+
+// ——— Компонент формы для создания/редактирования услуги ———
+interface ServiceFormProps {
+  initial?: { title: string; price: number; duration_minutes: number; category: string }
+  onSave: (data: { title: string; price: number; duration_minutes: number; category: string }) => Promise<void>
+  onCancel?: () => void
+}
+
+function ServiceForm({ initial, onSave, onCancel }: ServiceFormProps) {
+  const [title, setTitle] = useState(initial?.title || '')
+  const [price, setPrice] = useState(String(initial?.price || ''))
+  const [duration, setDuration] = useState(String(initial?.duration_minutes || 45))
+  const [category, setCategory] = useState(initial?.category || 'Стрижка')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!title.trim() || !price) return
+    setSaving(true)
+    await onSave({
+      title: title.trim(),
+      price: parseFloat(price),
+      duration_minutes: parseInt(duration) || 45,
+      category,
+    })
+    if (!initial) {
+      setTitle('')
+      setPrice('')
+      setDuration('45')
+      setCategory('Стрижка')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div style={{ padding: 12, background: 'var(--card-bg)', borderRadius: 12, marginBottom: 12 }}>
+      <div className="form-group" style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 12 }}>Название</label>
+        <input className="form-input" placeholder="Мужская стрижка" value={title}
+          onChange={e => setTitle(e.target.value)} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+          <label style={{ fontSize: 12 }}>Цена, ₽</label>
+          <input className="form-input" type="number" placeholder="1500" value={price}
+            onChange={e => setPrice(e.target.value)} />
+        </div>
+        <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+          <label style={{ fontSize: 12 }}>Длительность, мин</label>
+          <input className="form-input" type="number" placeholder="45" value={duration}
+            onChange={e => setDuration(e.target.value)} />
+        </div>
+      </div>
+      <div className="form-group" style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12 }}>Категория</label>
+        <select className="form-input" value={category} onChange={e => setCategory(e.target.value)}
+          style={{ height: 48 }}>
+          {['Стрижка', 'Борода', 'Комплекс', 'Дополнительно'].map(c => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving || !title.trim() || !price}>
+          {saving ? 'Сохранение...' : initial ? '💾 Сохранить' : '✅ Создать'}
+        </button>
+        {onCancel && (
+          <button className="btn btn-secondary btn-sm" onClick={onCancel}>Отмена</button>
+        )}
+      </div>
     </div>
   )
 }
