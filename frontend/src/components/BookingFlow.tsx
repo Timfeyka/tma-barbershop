@@ -25,6 +25,7 @@ export default function BookingFlow({
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [slots, setSlots] = useState<{ time: string; available: boolean; note?: string }[]>([])
   const [masterServices, setMasterServices] = useState<MasterService[]>([])
+  const [dayStatus, setDayStatus] = useState<Record<string, { is_working: boolean; has_slots: boolean }> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = useCallback((msg: string) => {
@@ -49,10 +50,33 @@ export default function BookingFlow({
     return data
   }
 
+  const loadDayStatus = async (masterId: number, year: number, month: number) => {
+    const data = await get<{ days: { date: string; is_working: boolean; has_slots: boolean }[] }>(
+      `/bookings/available-days/${masterId}/${year}/${month}`
+    ).catch(() => null)
+    if (data?.days) {
+      const map: Record<string, { is_working: boolean; has_slots: boolean }> = {}
+      for (const d of data.days) {
+        map[d.date] = { is_working: d.is_working, has_slots: d.has_slots }
+      }
+      setDayStatus(map)
+    }
+  }
+
+  const handleMonthChange = (year: number, month: number) => {
+    if (selectedMaster) {
+      loadDayStatus(selectedMaster.id, year, month)
+    }
+  }
+
   const handleSelectMaster = async (master: Master) => {
     setSelectedMaster(master)
+    setDayStatus(null)
     setStep('services')
     await loadMasterServices(master.id)
+    // Предзагружаем доступность на текущий месяц
+    const now = new Date()
+    loadDayStatus(master.id, now.getFullYear(), now.getMonth())
   }
 
   const handleSelectService = (svc: any) => {
@@ -106,6 +130,7 @@ export default function BookingFlow({
     setSelectedSlot(null)
     setSlots([])
     setMasterServices([])
+    setDayStatus(null)
   }
 
   const formatServiceItems = () => {
@@ -204,6 +229,8 @@ export default function BookingFlow({
             slots={slots}
             selectedSlot={selectedSlot}
             onSelectSlot={setSelectedSlot}
+            dayStatus={dayStatus}
+            onMonthChange={handleMonthChange}
           />
           {selectedSlot && (
             <BookingSummary

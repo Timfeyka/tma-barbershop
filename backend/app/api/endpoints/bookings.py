@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_type
 from app.core.database import get_db
 from app.models import models
 from app.schemas import schemas
@@ -27,6 +27,101 @@ def get_bookings_by_master(master_id: int, db: Session = Depends(get_db)):
         joinedload(models.Booking.service)
     ).filter(models.Booking.master_id == master_id).all()
     return bookings
+
+
+@router.get("/available-days/{master_id}/{year}/{month}")
+def get_available_days(master_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    """Получить статус доступности для каждого дня месяца.
+    Возвращает массив {date, is_working, has_slots}. """
+    master = db.query(models.Master).filter(models.Master.id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=404, detail="Мастер не найден")
+
+    # Расписание на неделю
+    schedule = {s.day_of_week: s for s in db.query(models.MasterSchedule).filter(
+        models.MasterSchedule.master_id == master_id
+    ).all()}
+
+    # Оверрайды на этот месяц
+    prefix = f"{year:04d}-{month:02d}"
+    overrides = {o.date: o for o in db.query(models.MasterDateOverride).filter(
+        models.MasterDateOverride.master_id == master_id,
+        models.MasterDateOverride.date.like(f"{prefix}%"),
+    ).all()}
+
+    # Существующие брони на месяц
+    month_start = datetime(year, month, 1)
+    if month == 12:
+        month_end = datetime(year + 1, 1, 1)
+    else:
+        month_end = datetime(year, month + 1, 1)
+    bookings = db.query(models.Booking).filter(
+        models.Booking.master_id == master_id,
+        models.Booking.is_cancelled == False,
+        models.Booking.booking_time >= month_start,
+        models.Booking.booking_time < month_end,
+    ).all()
+
+    from collections import defaultdict
+    bookings_per_day: dict[str, int] = defaultdict(int)
+    for b in bookings:
+        day_str = b.booking_time.strftime("%Y-%m-%d") if hasattr(b.booking_time, 'strftime') else str(b.booking_time)[:10]
+        bookings_per_day[day_str] += 1
+
+    import calendar as cal_mod
+    days_in_month = cal_mod.monthrange(year, month)[1]
+
+    result = []
+    for day in range(1, days_in_month + 1):
+        date_str = f"{year:04d}-{month:02d}-{day:02d}"
+        d = date_type(year, month, day)
+        dow = d.weekday()
+
+        # Проверяем оверрайд
+        ov = overrides.get(date_str)
+        if ov:
+            is_working = ov.is_working
+            if ov.is_working and ov.working_intervals:
+                try:
+                    intervals = json.loads(ov.working_intervals)
+                except (json.JSONDecodeError, TypeError):
+                    intervals = None
+                if intervals:
+                    # Примерная оценка: сумма минут интервалов / 60 = макс слотов
+                    total_slots = 0
+                    for iv in intervals:
+                        sh, sm = map(int, iv.get("start", "10:00").split(":"))
+                        eh, em = map(int, iv.get("end", "20:00").split(":"))
+                        mins = (eh * 60 + em) - (sh * 60 + sm)
+                        total_slots += max(0, mins // 60)  # интервал 1 час
+                    has_slots = bookings_per_day.get(date_str, 0) < total_slots if total_slots > 0 else False
+                else:
+                    has_slots = False
+            else:
+                has_slots = False
+        else:
+            # Используем расписание
+            sched = schedule.get(dow)
+            if sched and sched.is_working:
+                is_working = True
+                # Оценка слотов по расписанию
+                sh, sm = map(int, sched.start_time.split(":"))
+                eh, em = map(int, sched.end_time.split(":"))
+                interval = sched.slot_interval_minutes or 60
+                mins = (eh * 60 + em) - (sh * 60 + sm)
+                total_slots = max(0, mins // interval) if interval > 0 else 0
+                has_slots = bookings_per_day.get(date_str, 0) < total_slots if total_slots > 0 else False
+            else:
+                is_working = False
+                has_slots = False
+
+        result.append({
+            "date": date_str,
+            "is_working": is_working,
+            "has_slots": has_slots,
+        })
+
+    return {"days": result}
 
 
 @router.get("/available-slots/{master_id}/{date}")

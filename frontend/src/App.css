@@ -747,6 +747,24 @@ code {
   pointer-events: none;
 }
 
+.calendar-day.day-off {
+  pointer-events: none;
+}
+
+.calendar-day.day-available {
+  font-weight: 700;
+}
+
+.calendar-day.day-available::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #27ae60;
+}
+
 .calendar-day .date-override-badge {
   font-size: 8px;
   color: var(--accent);

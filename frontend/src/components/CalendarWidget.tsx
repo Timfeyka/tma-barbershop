@@ -43,12 +43,21 @@ function getMonthDays(month: number, year: number): CalendarDay[] {
   return days
 }
 
+interface DayStatus {
+  is_working: boolean
+  has_slots: boolean
+}
+
 interface CalendarWidgetProps {
   selectedDate: string | null
   onSelectDate: (dateStr: string) => void
   slots: TSType[]
   selectedSlot: string | null
   onSelectSlot: (time: string) => void
+  /** Статус каждого дня месяца { "2026-07-10": { is_working, has_slots } } */
+  dayStatus?: Record<string, DayStatus> | null
+  /** Вызывается при смене месяца в календаре */
+  onMonthChange?: (year: number, month: number) => void
 }
 
 export default function CalendarWidget({
@@ -57,6 +66,8 @@ export default function CalendarWidget({
   slots,
   selectedSlot,
   onSelectSlot,
+  dayStatus,
+  onMonthChange,
 }: CalendarWidgetProps) {
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth())
@@ -64,13 +75,33 @@ export default function CalendarWidget({
 
   const days = getMonthDays(month, year)
 
+  const changeMonth = (newMonth: number, newYear: number) => {
+    setMonth(newMonth)
+    setYear(newYear)
+    onMonthChange?.(newYear, newMonth)
+  }
+
   const prevMonth = () => {
-    if (month === 0) { setMonth(11); setYear(y => y - 1) }
-    else setMonth(m => m - 1)
+    if (month === 0) changeMonth(11, year - 1)
+    else changeMonth(month - 1, year)
   }
   const nextMonth = () => {
-    if (month === 11) { setMonth(0); setYear(y => y + 1) }
-    else setMonth(m => m + 1)
+    if (month === 11) changeMonth(0, year + 1)
+    else changeMonth(month + 1, year)
+  }
+
+  const getDayStyle = (d: CalendarDay): React.CSSProperties => {
+    if (!d.dateStr || d.isPast || d.isOther) return {}
+    const st = dayStatus?.[d.dateStr]
+    if (!st) return {}
+    if (st.is_working && st.has_slots) {
+      return { background: 'rgba(46,204,113,0.2)', color: '#27ae60', fontWeight: 600 }
+    }
+    if (!st.is_working) {
+      return { background: 'rgba(231,76,60,0.12)', color: '#e74c3c' }
+    }
+    // Рабочий, но всё занято
+    return { color: 'var(--text-dim)', opacity: 0.5 }
   }
 
   return (
@@ -85,16 +116,29 @@ export default function CalendarWidget({
         {WEEKDAYS_SHORT.map(wd => (
           <div key={wd} className="calendar-weekday">{wd}</div>
         ))}
-        {days.map((d, i) => (
-          <button
-            key={i}
-            className={`calendar-day${d.isToday ? ' today' : ''}${d.isPast ? ' past' : ''}${d.isOther ? ' other-month' : ''}${selectedDate === d.dateStr ? ' selected' : ''}`}
-            disabled={!d.dateStr || d.isPast || d.isOther}
-            onClick={() => d.dateStr && !d.isPast && onSelectDate(d.dateStr)}
-          >
-            {d.day}
-          </button>
-        ))}
+        {days.map((d, i) => {
+          const customStyle = getDayStyle(d)
+          const classes = [
+            'calendar-day',
+            d.isToday ? 'today' : '',
+            d.isPast ? 'past' : '',
+            d.isOther ? 'other-month' : '',
+            selectedDate === d.dateStr ? 'selected' : '',
+            !d.isPast && !d.isOther && dayStatus?.[d.dateStr || '']?.is_working === false ? 'day-off' : '',
+            !d.isPast && !d.isOther && dayStatus?.[d.dateStr || '']?.is_working && dayStatus[d.dateStr]?.has_slots ? 'day-available' : '',
+          ].filter(Boolean).join(' ')
+          return (
+            <button
+              key={i}
+              className={classes}
+              disabled={!d.dateStr || d.isPast || d.isOther || dayStatus?.[d.dateStr || '']?.is_working === false}
+              style={customStyle}
+              onClick={() => d.dateStr && !d.isPast && onSelectDate(d.dateStr)}
+            >
+              {d.day}
+            </button>
+          )
+        })}
       </div>
 
       {selectedDate && slots.length > 0 && (
