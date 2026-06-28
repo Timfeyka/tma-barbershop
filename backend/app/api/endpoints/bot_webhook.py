@@ -168,39 +168,49 @@ def webhook_status():
     return result
 
 
-def register_webhook(webhook_url: str) -> bool:
+def register_webhook(webhook_url: str, max_retries: int = 5) -> bool:
     """
     Зарегистрировать webhook URL для бота.
-    Вызывается при запуске (после того как туннель запущен).
+    Делает несколько попыток — туннель может быть ещё не готов.
     """
+    import time
+
     if not BOT_TOKEN:
         print("⚠️ BOT_TOKEN не задан — webhook не зарегистрирован")
         return False
 
     hook_url = webhook_url.rstrip("/") + "/api/bot/webhook"
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-    payload = json.dumps({
-        "url": hook_url,
-        "allowed_updates": ["message"],
-    }).encode("utf-8")
+    api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
 
-    print(f"🔌 Регистрирую webhook: {hook_url}")
-    req = urllib.request.Request(
-        url, data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            if data.get("ok"):
-                print(f"✅ Webhook зарегистрирован: {hook_url}")
-                return True
-            else:
-                print(f"⚠️ Ошибка регистрации webhook: {data}")
-                return False
-    except Exception as e:
-        print(f"⚠️ Ошибка регистрации webhook: {e}")
-        return False
+    for attempt in range(max_retries):
+        payload = json.dumps({
+            "url": hook_url,
+            "allowed_updates": ["message"],
+        }).encode("utf-8")
+
+        print(f"🔌 Регистрирую webhook ({attempt + 1}/{max_retries}): {hook_url}")
+        req = urllib.request.Request(
+            api_url, data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                if data.get("ok"):
+                    print(f"✅ Webhook зарегистрирован: {hook_url}")
+                    return True
+                else:
+                    desc = data.get("description", str(data))
+                    print(f"⚠️ Webhook обновился: {desc}")
+                    return True if "already" in desc.lower() else False
+        except Exception as e:
+            print(f"⚠️ Попытка {attempt + 1}/{max_retries}: {e}")
+            if attempt < max_retries - 1:
+                print("   ⏳ Жду 3 секунды...")
+                time.sleep(3)
+
+    print(f"❌ Webhook не зарегистрирован после {max_retries} попыток")
+    return False
 
 
 def delete_webhook() -> bool:

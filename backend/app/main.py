@@ -1,6 +1,8 @@
 import os
 import json
 import urllib.request
+import threading
+import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -120,13 +122,16 @@ def startup():
     _run_alembic_migrations()
 
     # Авто-настройка Menu Button + webhook
-    try:
-        base_url = str(os.getenv("BASE_URL", ""))
-        if base_url:
-            _auto_setup_menu_button(base_url)
+    base_url = str(os.getenv("BASE_URL", ""))
+    if base_url:
+        _auto_setup_menu_button(base_url)
+        # Webhook регистрируем в фоне — не блокируем запуск API
+        # Туннель может быть ещё не готов, retry сделает register_webhook сам
+        def _register_webhook_delayed():
+            time.sleep(3)  # даём туннелю время на запуск
             bot_webhook.register_webhook(base_url)
-    except Exception as e:
-        print(f"⚠️ Ошибка авто-настройки Menu Button / webhook: {e}")
+        t = threading.Thread(target=_register_webhook_delayed, daemon=True)
+        t.start()
 
     # Сидирование данных (только услуги, мастеров нет)
     if db.query(models.Service).count() == 0:
