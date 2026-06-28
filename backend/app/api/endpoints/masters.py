@@ -339,17 +339,29 @@ async def upload_master_photo(master_id: int, request: Request, file: UploadFile
     if file.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
         raise HTTPException(status_code=400, detail="Поддерживаются только JPEG, PNG, WebP и GIF")
 
-    # Определяем расширение
-    ext = file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "jpg"
+    # Определяем расширение (в нижнем регистре)
+    ext = (file.filename.rsplit(".", 1)[-1] or "jpg").lower() if file.filename else "jpg"
+    if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
+        raise HTTPException(status_code=400, detail=f"Расширение не поддерживается: .{ext}")
+
     filename = f"{master_id}.{ext}"
-    upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "uploads", "photos")
+    upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "uploads", "photos")
     os.makedirs(upload_dir, exist_ok=True)
     filepath = os.path.join(upload_dir, filename)
+
+    # Удаляем старый файл (если было фото с другим расширением)
+    for old_ext in ("jpg", "jpeg", "png", "webp", "gif"):
+        if old_ext != ext:
+            old_path = os.path.join(upload_dir, f"{master_id}.{old_ext}")
+            if os.path.exists(old_path):
+                os.remove(old_path)
+                break
 
     # Сохраняем файл
     contents = await file.read()
     with open(filepath, "wb") as f:
         f.write(contents)
+    print(f"✅ Фото мастера {master_id} сохранено: {filepath} ({len(contents)} байт)")
 
     # Обновляем photo_url
     base_url = str(request.base_url).rstrip("/")
