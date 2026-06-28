@@ -383,6 +383,12 @@ function App() {
 
   const photoInputRef = useRef(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [imgLoadFailed, setImgLoadFailed] = useState(false)
+
+  // Сбрасываем imgLoadFailed при смене photo_url
+  useEffect(() => {
+    setImgLoadFailed(false)
+  }, [masterViewMaster?.photo_url])
 
   const handleMasterPhotoUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -1154,8 +1160,13 @@ function App() {
         {/* Фото мастера */}
         <div className="master-photo-section">
           <div className="master-avatar-wrapper" onClick={() => photoInputRef.current?.click()}>
-            {masterViewMaster.photo_url ? (
-              <img src={masterViewMaster.photo_url} alt={masterViewMaster.name} className="master-avatar-img" />
+            {masterViewMaster.photo_url && !imgLoadFailed ? (
+              <img
+                src={masterViewMaster.photo_url}
+                alt={masterViewMaster.name}
+                className="master-avatar-img"
+                onError={() => setImgLoadFailed(true)}
+              />
             ) : (
               <div className="master-avatar-placeholder">
                 {masterViewMaster.name[0]?.toUpperCase() || '?'}

@@ -80,20 +80,25 @@ def get_available_slots(master_id: int, date: str, db: Session = Depends(get_db)
             hour += 1
             minute = minute - 60 if minute >= 60 else 0
 
-    # Получаем занятые слоты
+    # Получаем занятые слоты (проверяем шире — ±2 дня, чтобы учесть старые записи
+    # с UTC-смещением, и фильтруем уже в Python по дате)
     day_start = datetime.combine(target_date, datetime.min.time().replace(hour=start_h, minute=start_m))
     day_end = datetime.combine(target_date, datetime.min.time().replace(hour=end_h, minute=end_m))
 
     booked = db.query(models.Booking).filter(
         models.Booking.master_id == master_id,
         models.Booking.is_cancelled == False,
-        models.Booking.booking_time >= day_start,
-        models.Booking.booking_time < day_end,
+        models.Booking.booking_time >= day_start - timedelta(days=2),
+        models.Booking.booking_time < day_end + timedelta(days=2),
     ).all()
 
     booked_times = set()
     for b in booked:
-        booked_times.add(b.booking_time.strftime("%H:%M"))
+        # Сравниваем ТОЛЬКО по дате (без времени) — так не ломается при смене
+        # формата хранения времени (UTC → local и т.д.)
+        b_date = b.booking_time.date() if hasattr(b.booking_time, 'date') else target_date
+        if b_date == target_date:
+            booked_times.add(b.booking_time.strftime("%H:%M"))
 
     available = []
     available_count = 0
