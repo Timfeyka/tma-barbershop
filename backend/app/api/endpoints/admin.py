@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.config import ADMIN_PASSWORD, BOT_TOKEN
 from app.models import models
 from app.schemas import schemas
+from app.api.endpoints.bot_webhook import register_webhook
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -163,6 +164,25 @@ def get_bot_info(request: Request):
             f"   Или: Bot Settings → Domain → укажите домен"
         ),
     }
+
+
+@router.post("/setup-webhook")
+def admin_setup_webhook(request: Request):
+    """Принудительно настроить webhook на текущий URL."""
+    base_url = str(os.getenv("BASE_URL", "")) or str(request.base_url).rstrip("/")
+    if not base_url or base_url.startswith("http://localhost"):
+        # Если BASE_URL не установлен — пытаемся получить реальный URL
+        forwarded = request.headers.get("X-Forwarded-Host", "")
+        if forwarded:
+            base_url = f"https://{forwarded.split(',')[0].strip()}"
+        else:
+            raise HTTPException(status_code=400, detail="BASE_URL не задан. Запустите deploy.sh")
+
+    ok = register_webhook(base_url)
+    if ok:
+        return {"status": "ok", "webhook_url": base_url.rstrip("/") + "/api/bot/webhook"}
+    else:
+        raise HTTPException(status_code=500, detail="Не удалось зарегистрировать webhook. Проверьте BOT_TOKEN в .env")
 
 
 def _get_bot_username() -> str | None:

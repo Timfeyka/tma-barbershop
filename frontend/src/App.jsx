@@ -66,6 +66,7 @@ function App() {
   const [registering, setRegistering] = useState(false)
   const [manualName, setManualName] = useState('')
   const [manualTgUsername, setManualTgUsername] = useState('')
+  const [manualInviteToken, setManualInviteToken] = useState('')
 
   // Секретный вход в админку
   const [tapCount, setTapCount] = useState(0)
@@ -168,15 +169,16 @@ function App() {
 
   // ===== РЕГИСТРАЦИЯ ПО ИНВАЙТУ =====
 
-  const handleRegisterByInvite = async (manualData) => {
+  const handleRegisterByInvite = async (manualData, manualToken) => {
     const payload = manualData || {}
+    const token = manualToken || inviteToken
     if (!payload.name && !tgUser) return
-    if (!inviteToken) return
+    if (!token) return
 
     setRegistering(true)
     try {
       const res = await post('/masters/register-by-invite', {
-        token: inviteToken,
+        token: token,
         name: payload.name || tgUser?.first_name || tgUser?.username || 'Мастер',
         telegram_id: payload.telegram_id || tgUser?.id || 0,
         username: payload.username || tgUser?.username || null,
@@ -245,8 +247,18 @@ function App() {
 
   // ===== ВХОД МАСТЕРА =====
   const getAutoMaster = () => {
-    if (!tgUser?.id || masters.length === 0) return null
-    return masters.find(m => m.telegram_id === tgUser.id) || null
+    if (!tgUser || masters.length === 0) return null
+    // Сначала по telegram_id (основной способ)
+    if (tgUser.id) {
+      const byId = masters.find(m => m.telegram_id === tgUser.id)
+      if (byId) return byId
+    }
+    // Fallback: по tg_username (для мастеров, зарегистрировавшихся через браузер)
+    if (tgUser.username) {
+      const byUsername = masters.find(m => m.tg_username && m.tg_username.toLowerCase() === tgUser.username.toLowerCase())
+      if (byUsername) return byUsername
+    }
+    return null
   }
 
   const handleMasterLogin = () => {
@@ -720,6 +732,28 @@ function App() {
                 </div>
               </div>
             )}
+
+            {/* Webhook статус */}
+            <div className="summary" style={{ marginBottom: 16, padding: 12, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                  🤖 Webhook: {adminStats && !botInfo?.has_bot_token ? '⚠️ нет BOT_TOKEN' : 'настроен'}
+                </span>
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={async () => {
+                    try {
+                      const res = await post('/admin/setup-webhook')
+                      showToast('✅ Webhook настроен: ' + (res.webhook_url || '').slice(0, 40) + '...')
+                    } catch (e) {
+                      showToast('❌ Ошибка: ' + e.message)
+                    }
+                  }}
+                >
+                  🔄 Настроить webhook заново
+                </button>
+              </div>
+            </div>
 
             <nav className="nav-tabs" style={{ marginTop: 8 }}>
               {[
@@ -1458,8 +1492,7 @@ function App() {
                   <span style={{ fontSize: 32 }}>🔗</span>
                 </p>
                 <p style={{ color: 'var(--text-dim)', fontSize: 14, marginBottom: 12 }}>
-                  {tgUser.first_name}, ваш Telegram не привязан к мастеру.<br />
-                  Попросите у администратора инвайт-ссылку.
+                  {tgUser.first_name}, ваш Telegram не привязан к мастеру.
                 </p>
               </div>
 
@@ -1470,6 +1503,35 @@ function App() {
                   </p>
                   <button className="btn btn-primary" onClick={() => handleRegisterByInvite()}>
                     Зарегистрироваться
+                  </button>
+                </div>
+              )}
+
+              {/* Если нет invite token в URL — даём ввести вручную */}
+              {!inviteToken && (
+                <div className="summary" style={{ marginBottom: 16 }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, textAlign: 'center' }}>
+                    Есть инвайт-ссылка от администратора?<br />
+                    Введите токен из ссылки (<code>?invite=XXX</code>):
+                  </p>
+                  <div className="form-group" style={{ marginBottom: 12 }}>
+                    <input
+                      className="form-input"
+                      placeholder="Вставьте токен"
+                      value={manualInviteToken}
+                      onChange={e => setManualInviteToken(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                    />
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      if (!manualInviteToken.trim()) return
+                      await handleRegisterByInvite({}, manualInviteToken.trim())
+                      setManualInviteToken('')
+                    }}
+                    disabled={!manualInviteToken.trim() || registering}
+                  >
+                    {registering ? 'Регистрирую...' : '🔗 Привязать Telegram к мастеру'}
                   </button>
                 </div>
               )}

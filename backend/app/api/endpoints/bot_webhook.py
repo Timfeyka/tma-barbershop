@@ -8,11 +8,7 @@ import os
 import urllib.request
 import urllib.error
 from fastapi import APIRouter, Request
-from dotenv import load_dotenv
-
-load_dotenv()
-
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+from app.core.config import BOT_TOKEN
 
 router = APIRouter(prefix="/bot", tags=["Bot"])
 
@@ -55,7 +51,7 @@ def _handle_start_command(chat_id: int, text: str, base_url: str):
         token = param.replace("invite_", "")
         invite_url = f"{base_url}?invite={token}"
 
-        _send_telegram_message(
+        sent = _send_telegram_message(
             chat_id=chat_id,
             text=(
                 "🎉 <b>Вы получили приглашение стать мастером!</b>\n\n"
@@ -71,15 +67,18 @@ def _handle_start_command(chat_id: int, text: str, base_url: str):
                 ]]
             },
         )
-        print(f"✅ Отправлена кнопка web_app для invite {token} (chat_id={chat_id})")
-        return True
+        if sent:
+            print(f"✅ Отправлена кнопка web_app для invite {token} (chat_id={chat_id})")
+        else:
+            print(f"❌ Не удалось отправить кнопку invite {token} (chat_id={chat_id})")
+        return sent
 
     # Если просто /start без параметра — приветствие
-    _send_telegram_message(
+    sent = _send_telegram_message(
         chat_id=chat_id,
         text=(
             "👋 <b>Добро пожаловать в Барбершоп!</b>\n\n"
-            "Записаться на стрижку можно в нашем Mini App:"
+            "Записаться на стрижку можно в нашем Mini App."
         ),
         reply_markup={
             "inline_keyboard": [[
@@ -90,7 +89,7 @@ def _handle_start_command(chat_id: int, text: str, base_url: str):
             ]]
         },
     )
-    return True
+    return sent
 
 
 @router.post("/webhook")
@@ -99,7 +98,7 @@ async def telegram_webhook(request: Request):
     Принимает обновления от Telegram Bot API.
     """
     if not BOT_TOKEN:
-        return {"ok": False, "error": "BOT_TOKEN не задан"}
+        return {"ok": False, "error": "BOT_TOKEN не задан. Проверьте .env файл"}
 
     try:
         body = await request.json()
@@ -113,23 +112,60 @@ async def telegram_webhook(request: Request):
     text = message.get("text", "")
 
     if not chat_id or not text:
-        # Игнорируем другие типы обновлений
         return {"ok": True}
 
     # BASE_URL должен быть установлен через ENV при деплое (см. deploy.sh)
     base_url = str(os.getenv("BASE_URL", ""))
     if not base_url:
-        # Fallback: читаем из заголовков (если proxy передаёт)
         forwarded = request.headers.get("X-Forwarded-Host", "")
         if forwarded:
             base_url = f"https://{forwarded.split(',')[0].strip()}"
-        else:
-            base_url = str(request.base_url).rstrip("/")
+
+    if not base_url:
+        print(f"⚠️ Webhook: нет BASE_URL, не могу ответить на /start от chat_id={chat_id}")
+        return {"ok": True, "warning": "BASE_URL is not set"}
 
     if text.startswith("/start"):
         _handle_start_command(chat_id, text, base_url)
 
     return {"ok": True}
+
+
+@router.get("/webhook-status")
+def webhook_status():
+    """Проверить статус webhook и бота (GET, для диагностики)."""
+    result = {
+        "has_bot_token": bool(BOT_TOKEN),
+        "has_token_length": len(BOT_TOKEN) if BOT_TOKEN else 0,
+    }
+
+    if not BOT_TOKEN:
+        result["error"] = "BOT_TOKEN не задан в .env"
+        return result
+
+    # Проверяем getMe
+    try:
+        req = urllib.request.Request(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            result["bot"] = data.get("result", {}) if data.get("ok") else None
+            result["bot_ok"] = data.get("ok", False)
+    except Exception as e:
+        result["bot_error"] = str(e)
+
+    # Проверяем getWebhookInfo
+    try:
+        req = urllib.request.Request(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            result["webhook"] = data.get("result", {}) if data.get("ok") else None
+            result["webhook_ok"] = data.get("ok", False)
+    except Exception as e:
+        result["webhook_error"] = str(e)
+
+    result["base_url_env"] = os.getenv("BASE_URL", "")
+
+    return result
 
 
 def register_webhook(webhook_url: str) -> bool:
@@ -148,6 +184,7 @@ def register_webhook(webhook_url: str) -> bool:
         "allowed_updates": ["message"],
     }).encode("utf-8")
 
+    print(f"🔌 Регистрирую webhook: {hook_url}")
     req = urllib.request.Request(
         url, data=payload,
         headers={"Content-Type": "application/json"},

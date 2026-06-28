@@ -3,11 +3,7 @@ import os
 import urllib.request
 import urllib.error
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv()
-
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+from app.core.config import BOT_TOKEN
 
 
 def _send_telegram_message(chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
