@@ -218,6 +218,13 @@ def startup():
     db.close()
 
 
+# Раздача загруженных файлов (фото мастеров и т.д.)
+# ВАЖНО: монтируем ДО фронтенда, иначе catch-all "/" перехватит запросы
+UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
+if os.path.exists(UPLOADS_DIR):
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+    print(f"✅ Папка загрузок подключена: {UPLOADS_DIR}")
+
 # Раздача статики фронтенда (если папка существует)
 FRONTEND_DIST = os.getenv(
     "FRONTEND_DIST",
@@ -228,12 +235,6 @@ if os.path.exists(FRONTEND_DIST):
     print(f"✅ Статика фронтенда подключена: {FRONTEND_DIST}")
 else:
     print(f"ℹ️ Статика фронтенда не найдена: {FRONTEND_DIST}")
-
-# Раздача загруженных файлов (фото мастеров и т.д.)
-UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
-if os.path.exists(UPLOADS_DIR):
-    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
-    print(f"✅ Папка загрузок подключена: {UPLOADS_DIR}")
 
 
 @app.get("/api/health")

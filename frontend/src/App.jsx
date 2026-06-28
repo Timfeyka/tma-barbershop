@@ -79,6 +79,7 @@ function App() {
     if (window.Telegram?.WebApp) {
       const app = window.Telegram.WebApp
       app.ready()
+      app.expand() // на весь экран
       setTg(app)
       setTgUser(app.initDataUnsafe?.user || null)
 
