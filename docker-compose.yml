@@ -20,6 +20,7 @@ services:
       dockerfile: backend/Dockerfile
     container_name: barber_backend
     restart: always
+    env_file: ./backend/.env
     # Для разработки: том для hot-reload бэкенда (фронтенд через Vite dev server отдельно)
     volumes:
       - ./backend:/code
@@ -29,8 +30,6 @@ services:
       - db
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/barber_db
-      - BOT_TOKEN=8962361890:AAFU2LwhoUq5FPct2zHDS9rv0-ASZa8my_E
-      - ADMIN_PASSWORD=admin123
 
 volumes:
   postgres_data:
